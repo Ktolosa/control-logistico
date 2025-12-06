@@ -4,8 +4,7 @@ import mysql.connector
 from datetime import date, datetime, timedelta
 from streamlit_calendar import calendar
 import plotly.express as px
-import plotly.graph_objects as go
-import io
+import re # Para procesar texto de masters
 
 # --- 1. CONFIGURACIÓN INICIAL ---
 st.set_page_config(
@@ -19,10 +18,8 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_info' not in st.session_state: st.session_state['user_info'] = None
 if 'current_view' not in st.session_state: st.session_state['current_view'] = "calendar"
 
-# --- 2. CSS AVANZADO (DISEÑO LIGHT & ULTRA SLIM) ---
-
-# Ancho reducido al 50% funcional (menos de 50px afecta la usabilidad)
-SIDEBAR_WIDTH = "55px"
+# --- 2. CSS AVANZADO (BARRA CENTRADA Y DISEÑO LIMPIO) ---
+SIDEBAR_WIDTH = "60px" # Un poco más ancho para que se vea bien centrado
 
 base_css = """
 <style>
@@ -32,8 +29,6 @@ base_css = """
     [data-testid="stDecoration"] { display: none !important; }
     [data-testid="stHeader"] { visibility: hidden !important; }
     footer { display: none !important; }
-    
-    /* Fondo de la App (Gris muy suave para contraste con barra blanca) */
     .stApp { background-color: #f8fafc; font-family: 'Segoe UI', sans-serif; }
 </style>
 """
@@ -42,20 +37,14 @@ login_css = """
 <style>
     section[data-testid="stSidebar"] { display: none !important; }
     .main .block-container { max-width: 400px; padding-top: 15vh; margin: 0 auto; }
-    div[data-testid="stTextInput"] input {
-        border: 1px solid #e2e8f0; padding: 12px; border-radius: 10px; background: white; color: #334155;
-    }
-    div.stButton > button { 
-        width: 100%; border-radius: 10px; padding: 12px; font-weight: 600;
-        background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; color: white;
-    }
+    div[data-testid="stTextInput"] input { border: 1px solid #e2e8f0; padding: 12px; border-radius: 10px; }
+    div.stButton > button { width: 100%; border-radius: 10px; padding: 12px; font-weight: 600; background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; color: white; }
 </style>
 """
 
 dashboard_css = f"""
 <style>
-    /* --- 1. BARRA LATERAL BLANCA & SLIM --- */
-    
+    /* --- 1. BARRA LATERAL (Centrada Vertical y Horizontalmente) --- */
     [data-testid="collapsedControl"] {{ display: none !important; }}
     
     section[data-testid="stSidebar"] {{
@@ -63,26 +52,27 @@ dashboard_css = f"""
         width: {SIDEBAR_WIDTH} !important;
         min-width: {SIDEBAR_WIDTH} !important;
         max-width: {SIDEBAR_WIDTH} !important;
-        transform: none !important; /* Bloqueo de ocultamiento */
+        transform: none !important;
         visibility: visible !important;
         position: fixed !important;
         top: 0 !important; left: 0 !important; bottom: 0 !important;
         z-index: 99999;
-        
-        /* DISEÑO LIGHT (Blanco con sombra suave) */
         background-color: #ffffff !important;
         border-right: 1px solid #f1f5f9;
         box-shadow: 4px 0 20px rgba(0,0,0,0.03);
-        padding-top: 15px;
     }}
     
+    /* CENTRADO VERTICAL DEL CONTENIDO DE LA BARRA */
     section[data-testid="stSidebar"] > div {{
-        overflow: hidden !important;
-        width: 100% !important;
-        display: flex; flex-direction: column; align-items: center;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center; /* Centrar verticalmente */
+        align-items: center;     /* Centrar horizontalmente */
+        padding-top: 0px !important; 
     }}
 
-    /* --- 2. CONTENIDO PRINCIPAL (Ajuste Perfecto) --- */
+    /* --- 2. CONTENIDO PRINCIPAL --- */
     .main .block-container {{
         margin-left: {SIDEBAR_WIDTH} !important;
         width: calc(100% - {SIDEBAR_WIDTH}) !important;
@@ -90,61 +80,64 @@ dashboard_css = f"""
         max-width: 100% !important;
     }}
 
-    /* --- 3. BOTONES DE MENÚ (Light Theme) --- */
+    /* --- 3. ICONOS DEL MENÚ --- */
     [data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {{ display: none !important; }}
     
+    /* Contenedor del grupo de radio buttons */
+    [data-testid="stSidebar"] div[role="radiogroup"] {{
+        display: flex; flex-direction: column; align-items: center; gap: 15px;
+    }}
+
     [data-testid="stSidebar"] div[role="radiogroup"] label {{
         display: flex !important; justify-content: center !important; align-items: center !important;
-        width: 40px !important; height: 40px !important; /* Más pequeño */
-        border-radius: 10px !important; margin-bottom: 20px !important; cursor: pointer;
-        
-        /* Colores Inactivos (Gris oscuro sobre blanco) */
-        background: transparent;
-        color: #64748b; 
-        font-size: 20px !important;
-        border: 1px solid transparent;
-        transition: all 0.2s;
+        width: 42px !important; height: 42px !important;
+        border-radius: 12px !important; cursor: pointer;
+        background: transparent; color: #64748b; font-size: 22px !important;
+        border: 1px solid transparent; transition: all 0.2s; margin: 0 !important;
     }}
     
     [data-testid="stSidebar"] div[role="radiogroup"] label:hover {{
-        background: #f1f5f9; color: #0f172a;
+        background: #f1f5f9; color: #0f172a; transform: scale(1.1);
     }}
     
-    /* Activo (Azul corporativo) */
     [data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"] {{
-        background: #eff6ff; /* Azul muy claro de fondo */
-        color: #2563eb; /* Azul fuerte de icono */
-        border: 1px solid #dbeafe;
-        box-shadow: 0 2px 5px rgba(37, 99, 235, 0.1);
+        background: #eff6ff; color: #2563eb; border: 1px solid #dbeafe;
+        box-shadow: 0 4px 10px rgba(37, 99, 235, 0.15);
     }}
 
-    /* Avatar Container */
-    .avatar-box {{
-        width: 38px; height: 38px; background: #f8fafc;
-        border-radius: 50%; display: flex; align-items: center; justify-content: center;
-        margin-bottom: 25px; border: 2px solid #e2e8f0; font-size: 18px;
-        color: #334155;
+    /* Avatar flotante arriba (Absolute) */
+    .avatar-float {{
+        position: absolute; top: 20px; left: 0; right: 0; margin: auto;
+        width: 35px; height: 35px; background: #f8fafc; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        border: 2px solid #e2e8f0; font-size: 18px; color: #334155;
     }}
     
-    /* KPI Cards Premium */
-    .kpi-card {{
-        background: white; padding: 20px; border-radius: 12px;
-        border: 1px solid #e2e8f0; box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+    /* Botón Salir flotante abajo (Absolute) */
+    .logout-float {{
+        position: absolute; bottom: 20px; left: 0; right: 0; margin: auto; text-align: center;
     }}
-    .kpi-lbl {{ color: #64748b; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }}
-    .kpi-val {{ color: #0f172a; font-size: 1.6rem; font-weight: 800; margin-top: 5px; }}
+
+    /* Estilos KPI y Tablas */
+    .kpi-card {{
+        background: white; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0;
+    }}
+    .kpi-lbl {{ font-size: 0.75rem; color: #64748b; text-transform: uppercase; font-weight: 700; }}
+    .kpi-val {{ font-size: 1.5rem; color: #0f172a; font-weight: 800; }}
+    
+    /* Validación de conteo (Verde/Rojo) */
+    .count-ok {{ color: #16a34a; font-weight: bold; font-size: 0.9rem; }}
+    .count-err {{ color: #dc2626; font-weight: bold; font-size: 0.9rem; }}
 </style>
 """
 
-# Aplicar CSS
 st.markdown(base_css, unsafe_allow_html=True)
 if st.session_state['logged_in']:
     st.markdown(dashboard_css, unsafe_allow_html=True)
 else:
     st.markdown(login_css, unsafe_allow_html=True)
 
-
-# --- 3. CONEXIÓN Y DATOS ---
+# --- 3. CONEXIÓN Y UTILIDADES ---
 AVATARS = {"avatar_1": "👨‍💼", "avatar_2": "👩‍💼", "avatar_3": "👷‍♂️", "avatar_4": "👩‍💻"} 
 PROVEEDORES = ["Mail Americas", "APG", "IMILE", "GLC"]
 PLATAFORMAS = ["AliExpress", "Shein", "Temu"]
@@ -153,10 +146,8 @@ SERVICIOS = ["Aduana Propia", "Solo Ultima Milla"]
 def get_connection():
     try:
         return mysql.connector.connect(
-            host=st.secrets["mysql"]["host"],
-            user=st.secrets["mysql"]["user"],
-            password=st.secrets["mysql"]["password"],
-            database=st.secrets["mysql"]["database"]
+            host=st.secrets["mysql"]["host"], user=st.secrets["mysql"]["user"],
+            password=st.secrets["mysql"]["password"], database=st.secrets["mysql"]["database"]
         )
     except: return None
 
@@ -169,6 +160,16 @@ def verificar_login(u, p):
         cur.execute("SELECT * FROM usuarios WHERE username=%s AND password=%s AND activo=1", (u, p))
         res = cur.fetchone(); conn.close(); return res
     except: return None
+
+def cambiar_password(user_id, nueva_pass):
+    conn = get_connection()
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute("UPDATE usuarios SET password=%s WHERE id=%s", (nueva_pass, user_id))
+            conn.commit(); conn.close(); return True
+        except: pass
+    return False
 
 def solicitar_reset_pass(username):
     conn = get_connection(); 
@@ -194,28 +195,46 @@ def cargar_datos():
         if not df.empty:
             df['fecha'] = pd.to_datetime(df['fecha'])
             df['fecha_str'] = df['fecha'].dt.strftime('%Y-%m-%d')
+            # Lógica de Fechas
             df['Año'] = df['fecha'].dt.year
             df['Mes'] = df['fecha'].dt.month_name()
+            # ISO Week corrección
             df['Semana'] = df['fecha'].dt.isocalendar().week
             df['DiaSemana'] = df['fecha'].dt.day_name()
+            
+            # --- NUEVO: Conteo real de masters en la cadena ---
+            # Asumimos que master_lote guarda strings. Contamos palabras.
+            def contar_masters(texto):
+                if not texto: return 0
+                # Reemplazar saltos de línea y comas por espacios, luego contar
+                clean = re.sub(r'[\n,]', ' ', str(texto))
+                parts = [p for p in clean.split(' ') if p.strip()]
+                return len(parts)
+            
+            df['conteo_masters_real'] = df['master_lote'].apply(contar_masters)
+
         return df
     except: return pd.DataFrame()
 
-def guardar_registro(id_reg, fecha, prov, plat, serv, mast, paq, com):
+def guardar_registro(id_reg, fecha, prov, plat, serv, mast_str, paq, com):
     conn = get_connection()
     if conn:
         try:
             cur = conn.cursor()
             user = st.session_state['user_info']['username']
+            # Limpieza del string de masters para guardar formato standard (espaciado)
+            clean_masters = " ".join([m.strip() for m in re.split(r'[\n, ]+', mast_str) if m.strip()])
+            
             if id_reg is None:
-                cur.execute("INSERT INTO registro_logistica (fecha, proveedor_logistico, plataforma_cliente, tipo_servicio, master_lote, paquetes, comentarios, created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)", (fecha, prov, plat, serv, mast, paq, com, user))
-                st.toast("Guardado Exitosamente")
+                cur.execute("INSERT INTO registro_logistica (fecha, proveedor_logistico, plataforma_cliente, tipo_servicio, master_lote, paquetes, comentarios, created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)", (fecha, prov, plat, serv, clean_masters, paq, com, user))
+                st.toast("✅ Guardado Exitosamente")
             else:
-                cur.execute("UPDATE registro_logistica SET fecha=%s, proveedor_logistico=%s, plataforma_cliente=%s, tipo_servicio=%s, master_lote=%s, paquetes=%s, comentarios=%s WHERE id=%s", (fecha, prov, plat, serv, mast, paq, com, id_reg))
-                st.toast("Registro Actualizado")
+                cur.execute("UPDATE registro_logistica SET fecha=%s, proveedor_logistico=%s, plataforma_cliente=%s, tipo_servicio=%s, master_lote=%s, paquetes=%s, comentarios=%s WHERE id=%s", (fecha, prov, plat, serv, clean_masters, paq, com, id_reg))
+                st.toast("✅ Registro Actualizado")
             conn.commit(); conn.close()
         except Exception as e: st.error(str(e))
 
+# Funciones Admin (Usuarios/Claves) - Se mantienen igual
 def admin_crear_usuario(u, r):
     conn = get_connection(); 
     if conn:
@@ -223,32 +242,27 @@ def admin_crear_usuario(u, r):
             conn.cursor().execute("INSERT INTO usuarios (username, password, rol, avatar) VALUES (%s, '123456', %s, 'avatar_1')", (u, r))
             conn.commit(); conn.close(); return True
         except: pass; return False
-
 def admin_get_users():
     conn = get_connection(); 
     return pd.read_sql("SELECT id, username, rol, activo FROM usuarios", conn) if conn else pd.DataFrame()
-
 def admin_toggle(uid, curr):
-    conn = get_connection()
-    if conn:
-        conn.cursor().execute("UPDATE usuarios SET activo=%s WHERE id=%s", (0 if curr==1 else 1, uid))
-        conn.commit(); conn.close()
-
+    conn = get_connection(); conn.cursor().execute("UPDATE usuarios SET activo=%s WHERE id=%s", (0 if curr==1 else 1, uid)); conn.commit(); conn.close()
 def admin_restablecer_password(rid, uname):
-    conn = get_connection()
+    conn = get_connection(); 
     if conn:
-        cur = conn.cursor(); 
-        cur.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (uname,))
-        cur.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (rid,))
-        conn.commit(); conn.close()
+        cur=conn.cursor(); cur.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (uname,)); cur.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (rid,)); conn.commit(); conn.close()
 
-# --- 4. MODAL ---
+# --- 4. MODAL DE REGISTRO (CON LÓGICA DE CONTEO) ---
 @st.dialog("Gestión de Carga")
 def modal_registro(datos=None):
     rol = st.session_state['user_info']['rol']
     disabled = (rol == 'analista')
+    
+    # Valores por defecto
     d_fecha, d_prov, d_plat = date.today(), PROVEEDORES[0], PLATAFORMAS[0]
     d_serv, d_mast, d_paq, d_com, d_id = SERVICIOS[0], "", 0, "", None
+    d_esp = 1 # Esperados por defecto
+
     if datos:
         d_id = datos.get('id')
         if datos.get('fecha_str'): d_fecha = datetime.strptime(datos['fecha_str'], '%Y-%m-%d').date()
@@ -258,19 +272,42 @@ def modal_registro(datos=None):
         d_mast = datos.get('master', "")
         d_paq = datos.get('paquetes', 0)
         d_com = datos.get('comentarios', "")
+        # Intentar adivinar cuantos esperaban basándonos en lo que hay
+        d_esp = len([x for x in re.split(r'[\n, ]+', d_mast) if x.strip()]) 
+        if d_esp == 0: d_esp = 1
+
     with st.form("frm"):
         c1, c2 = st.columns(2)
         with c1:
-            fin = st.date_input("Fecha", d_fecha, disabled=disabled)
+            fin = st.date_input("Fecha Llegada", d_fecha, disabled=disabled)
             pin = st.selectbox("Proveedor", PROVEEDORES, index=PROVEEDORES.index(d_prov), disabled=disabled)
             clin = st.selectbox("Cliente", PLATAFORMAS, index=PLATAFORMAS.index(d_plat), disabled=disabled)
         with c2:
             sin = st.selectbox("Servicio", SERVICIOS, index=SERVICIOS.index(d_serv) if d_serv in SERVICIOS else 0, disabled=disabled)
-            min_ = st.text_input("Master", d_mast, disabled=disabled)
-            pain = st.number_input("Paquetes", 0, value=int(d_paq), disabled=disabled)
-        com = st.text_area("Notas", d_com, disabled=disabled)
+            pain = st.number_input("Total Paquetes", 0, value=int(d_paq), disabled=disabled)
+            esperados = st.number_input("Masters Esperadas (Validación)", min_value=1, value=d_esp, disabled=disabled)
+
+        st.markdown("---")
+        st.write("📋 **Pegar Masters (Bloque de texto)**")
+        # AREA DE TEXTO PARA PEGAR MULTIPLES
+        min_ = st.text_area("Masters (Separadas por espacio, coma o enter)", d_mast, height=100, disabled=disabled, placeholder="Pegue aquí sus códigos...")
+        
+        # --- LÓGICA DE VALIDACIÓN DE CONTEO EN TIEMPO REAL (AL RENDERIZAR) ---
+        lista_masters = [m for m in re.split(r'[\n, ]+', min_) if m.strip()]
+        conteo_actual = len(lista_masters)
+        
+        col_val1, col_val2 = st.columns(2)
+        col_val1.caption(f"Leídas: {conteo_actual}")
+        
+        if conteo_actual == esperados:
+            col_val2.markdown(f"<span class='count-ok'>✅ Correcto ({conteo_actual}/{esperados})</span>", unsafe_allow_html=True)
+        else:
+            col_val2.markdown(f"<span class='count-err'>⚠️ Diferencia: {conteo_actual - esperados}</span>", unsafe_allow_html=True)
+
+        com = st.text_area("Comentarios / Notas", d_com, disabled=disabled)
+        
         if not disabled:
-            if st.form_submit_button("Guardar Registro", type="primary", use_container_width=True):
+            if st.form_submit_button("💾 Guardar Datos", type="primary", use_container_width=True):
                 guardar_registro(d_id, fin, pin, clin, sin, min_, pain, com)
                 st.rerun()
 
@@ -279,7 +316,6 @@ def modal_registro(datos=None):
 # ==============================================================================
 
 if not st.session_state['logged_in']:
-    # --- LOGIN ---
     st.markdown("<div style='height: 50px'></div>", unsafe_allow_html=True)
     st.markdown("<h2 style='text-align: center; color: #1e293b;'>Nexus Logística</h2>", unsafe_allow_html=True)
     u = st.text_input("Usuario", placeholder="Usuario", label_visibility="collapsed")
@@ -294,35 +330,44 @@ if not st.session_state['logged_in']:
             st.rerun()
         else: st.error("Credenciales inválidas")
     st.markdown("<br>", unsafe_allow_html=True)
-    with st.expander("Recuperar acceso"):
+    with st.expander("Recuperar contraseña"):
         ur = st.text_input("Usuario")
-        if st.button("Enviar"):
+        if st.button("Solicitar Reset"):
             r = solicitar_reset_pass(ur)
             if r=="ok": st.success("Solicitud enviada.")
-            elif r=="pendiente": st.info("Ya está pendiente.")
-            else: st.warning("Usuario no existe.")
+            elif r=="pendiente": st.info("Pendiente.")
+            else: st.warning("No existe.")
 
 else:
     u_info = st.session_state['user_info']
     rol = u_info['rol']
     
-    # --- BARRA LATERAL LIGHT (55px) ---
+    # --- BARRA LATERAL (CENTRADA) ---
     with st.sidebar:
+        # Avatar (Position Absolute CSS lo pone arriba)
         av = AVATARS.get(u_info.get('avatar'), '👤')
-        st.markdown(f"<div style='display:flex; justify-content:center;'><div class='avatar-box' title='{u_info['username']}'>{av}</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='avatar-float' title='{u_info['username']}'>{av}</div>", unsafe_allow_html=True)
         
-        # MENÚ: 📅 (Cal) | 📈 (Analytics Pro) | 👥 (User) | 🔑 (Key)
-        opciones = ["📅", "📈"]
+        # MENÚ ICONOS (CENTRADO POR FLEXBOX EN CSS)
+        # 📅 Cal | 📈 Analytics | ⚙️ Config | 👥 Admin | 🔑 Keys
+        opciones = ["📅", "📈", "⚙️"]
         if rol == 'admin':
             opciones.extend(["👥", "🔑"])
         
         seleccion = st.radio("Menu", opciones, label_visibility="collapsed")
         
-        mapa = {"📅": "calendar", "📈": "analytics_pro", "👥": "admin_users", "🔑": "admin_reqs"}
+        mapa = {
+            "📅": "calendar", 
+            "📈": "analytics_pro", 
+            "⚙️": "user_settings",
+            "👥": "admin_users", 
+            "🔑": "admin_reqs"
+        }
         st.session_state['current_view'] = mapa.get(seleccion, "calendar")
 
-        st.markdown("<div style='flex-grow:1; margin-top:50px;'></div>", unsafe_allow_html=True)
-        if st.button("🚪", help="Salir"):
+        # Botón Salir (Position Absolute CSS lo pone abajo)
+        st.markdown("<div class='logout-float'></div>", unsafe_allow_html=True)
+        if st.sidebar.button("🚪", help="Salir"):
             st.session_state['logged_in'] = False
             st.rerun()
 
@@ -330,6 +375,7 @@ else:
     vista = st.session_state['current_view']
     df = cargar_datos()
 
+    # 1. CALENDARIO
     if vista == "calendar":
         c1, c2 = st.columns([6, 1])
         c1.title("Calendario Operativo")
@@ -348,109 +394,129 @@ else:
                     "servicio": str(r['tipo_servicio']), "master": str(r['master_lote']),
                     "paquetes": int(r['paquetes']), "comentarios": str(r['comentarios'])
                 }
-                evts.append({"title": f"{int(r['paquetes'])}", "start": r['fecha_str'], "backgroundColor": color, "borderColor": color, "extendedProps": props})
+                # En el título mostramos Paquetes y conteo de Masters
+                conteo = r['conteo_masters_real']
+                evts.append({"title": f"📦{int(r['paquetes'])} | 🔑{conteo}", "start": r['fecha_str'], "backgroundColor": color, "borderColor": color, "extendedProps": props})
         cal = calendar(events=evts, options={"initialView": "dayGridMonth", "height": "750px"}, key="cal_main")
         if cal.get("eventClick"): modal_registro(cal["eventClick"]["event"]["extendedProps"])
 
-    # --- NUEVA HERRAMIENTA: ANALYTICS PRO ---
+    # 2. ANALYTICS PRO (ACTUALIZADO CON TUS REQUISITOS)
     elif vista == "analytics_pro":
-        st.title("Analytics Pro 360°")
-        st.markdown("---")
+        st.title("Analytics & Reportes")
         
         if df.empty:
-            st.warning("No hay datos disponibles para analizar.")
+            st.warning("Sin datos.")
         else:
-            # 1. BARRA DE CONTROLES (Filtros Inteligentes)
-            with st.expander("🛠️ Panel de Control y Filtros", expanded=True):
-                fc1, fc2, fc3, fc4 = st.columns(4)
+            # --- SECCION SUPERIOR: FILTROS Y BÚSQUEDA MASTER ---
+            with st.container(border=True):
+                c_search, c_date = st.columns([1, 2])
+                # Buscador de Master Específica
+                search_master = c_search.text_input("🔍 Buscar Master Lote", placeholder="Escribe el código...")
                 
                 # Filtro Fechas
                 min_d, max_d = df['fecha'].min().date(), df['fecha'].max().date()
-                rango = fc1.date_input("Rango de Fechas", [min_d, max_d])
-                
-                # Filtros Listas
-                provs = fc2.multiselect("Proveedores", df['proveedor_logistico'].unique())
-                clis = fc3.multiselect("Clientes", df['plataforma_cliente'].unique())
-                servs = fc4.multiselect("Servicios", df['tipo_servicio'].unique())
-                
-                # Aplicar Filtros
-                df_fil = df.copy()
-                if len(rango) == 2:
-                    df_fil = df_fil[(df_fil['fecha'].dt.date >= rango[0]) & (df_fil['fecha'].dt.date <= rango[1])]
-                if provs: df_fil = df_fil[df_fil['proveedor_logistico'].isin(provs)]
-                if clis: df_fil = df_fil[df_fil['plataforma_cliente'].isin(clis)]
-                if servs: df_fil = df_fil[df_fil['tipo_servicio'].isin(servs)]
+                rango = c_date.date_input("Rango de Análisis", [min_d, max_d])
+
+            # Aplicar Filtros
+            df_fil = df.copy()
+            if search_master:
+                # Filtrar donde el string master_lote contenga el texto (case insensitive)
+                df_fil = df_fil[df_fil['master_lote'].str.contains(search_master, case=False, na=False)]
+                if not df_fil.empty:
+                    st.success(f"Se encontraron {len(df_fil)} viajes con la master '{search_master}'")
+                else:
+                    st.error(f"No se encontró la master '{search_master}'")
+            
+            if len(rango) == 2:
+                df_fil = df_fil[(df_fil['fecha'].dt.date >= rango[0]) & (df_fil['fecha'].dt.date <= rango[1])]
 
             st.divider()
 
-            # 2. KPIs DINÁMICOS
+            # --- SECCION KPI ---
             k1, k2, k3, k4 = st.columns(4)
-            total_paq = df_fil['paquetes'].sum()
-            total_viajes = len(df_fil)
-            # Contar masters únicos (ignorando vacíos)
-            masters_unicos = df_fil[df_fil['master_lote'] != '']['master_lote'].nunique()
-            promedio = df_fil['paquetes'].mean() if not df_fil.empty else 0
-
-            k1.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>📦 Total Paquetes</div><div class='kpi-val'>{total_paq:,.0f}</div></div>", unsafe_allow_html=True)
-            k2.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>🚛 Viajes Registrados</div><div class='kpi-val'>{total_viajes}</div></div>", unsafe_allow_html=True)
-            k3.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>🔑 Masters Únicos</div><div class='kpi-val'>{masters_unicos}</div></div>", unsafe_allow_html=True)
-            k4.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>📊 Promedio Carga</div><div class='kpi-val'>{promedio:,.0f}</div></div>", unsafe_allow_html=True)
-
-            st.write("") # Espacio
-
-            # 3. GRÁFICOS AVANZADOS
-            t1, t2, t3 = st.tabs(["📈 Evolución Temporal", "🎯 Distribución & Masters", "📥 Datos Detallados"])
+            # Suma de paquetes
+            t_paq = df_fil['paquetes'].sum()
+            # Suma de masters reales (calculado en cargar_datos)
+            t_mast = df_fil['conteo_masters_real'].sum()
             
-            with t1:
-                col_g1, col_g2 = st.columns([3, 1])
-                with col_g1:
-                    # Gráfico de Línea con Relleno (Área) por Día
+            k1.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>Paquetes Total</div><div class='kpi-val'>{t_paq:,.0f}</div></div>", unsafe_allow_html=True)
+            k2.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>Masters (Real)</div><div class='kpi-val'>{t_mast:,.0f}</div></div>", unsafe_allow_html=True)
+            k3.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>Viajes</div><div class='kpi-val'>{len(df_fil)}</div></div>", unsafe_allow_html=True)
+            k4.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>Promedio Paq/Viaje</div><div class='kpi-val'>{df_fil['paquetes'].mean():,.0f}</div></div>", unsafe_allow_html=True)
+
+            st.write("")
+
+            # --- TABS DE ANALISIS ---
+            tab1, tab2, tab3 = st.tabs(["📅 Resumen Semanal", "📊 Gráficos", "📥 Matriz de Datos"])
+            
+            with tab1:
+                st.subheader("Resumen Semanal de Operaciones")
+                # Agrupación por Año y Semana
+                if not df_fil.empty:
+                    # Crear tabla resumen
+                    # Agrupar
+                    resumen = df_fil.groupby(['Año', 'Semana', 'Mes']).agg(
+                        Paquetes=('paquetes', 'sum'),
+                        Masters=('conteo_masters_real', 'sum'),
+                        Viajes=('id', 'count')
+                    ).reset_index()
+                    
+                    # Calcular Fechas Inicio/Fin de la semana para mostrar
+                    def get_week_dates(year, week):
+                        d = date.fromisocalendar(year, week, 1)
+                        d2 = d + timedelta(days=6)
+                        return f"{d.strftime('%d-%b')} al {d2.strftime('%d-%b')}"
+
+                    resumen['Rango Fechas'] = resumen.apply(lambda x: get_week_dates(x['Año'], x['Semana']), axis=1)
+                    
+                    # Reordenar columnas
+                    resumen = resumen[['Año', 'Semana', 'Mes', 'Rango Fechas', 'Viajes', 'Masters', 'Paquetes']]
+                    st.dataframe(resumen, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No hay datos para el resumen.")
+
+            with tab2:
+                g1, g2 = st.columns(2)
+                with g1:
+                    st.caption("Volumen por Día")
                     g_time = df_fil.groupby('fecha')['paquetes'].sum().reset_index()
-                    fig_line = px.area(g_time, x='fecha', y='paquetes', title="Volumen de Paquetes (Timeline)", markers=True, color_discrete_sequence=['#3b82f6'])
-                    fig_line.update_layout(xaxis_title="Fecha", yaxis_title="Paquetes", template="plotly_white")
-                    st.plotly_chart(fig_line, use_container_width=True)
+                    fig = px.bar(g_time, x='fecha', y='paquetes', color_discrete_sequence=['#3b82f6'])
+                    st.plotly_chart(fig, use_container_width=True)
+                with g2:
+                    st.caption("Distribución por Proveedor")
+                    fig2 = px.pie(df_fil, names='proveedor_logistico', values='paquetes', hole=0.5)
+                    st.plotly_chart(fig2, use_container_width=True)
                 
-                with col_g2:
-                    # Heatmap Semanal
-                    st.markdown("**Intensidad por Día de la Semana**")
-                    order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-                    g_day = df_fil.groupby('DiaSemana')['paquetes'].mean().reindex(order).reset_index()
-                    fig_heat = px.bar(g_day, x='DiaSemana', y='paquetes', color='paquetes', color_continuous_scale="Blues")
-                    fig_heat.update_layout(xaxis_title=None, yaxis_title=None, showlegend=False, template="plotly_white")
-                    st.plotly_chart(fig_heat, use_container_width=True)
+                # Desglose por cliente
+                st.caption("Paquetes por Cliente y Plataforma")
+                fig3 = px.bar(df_fil, x='plataforma_cliente', y='paquetes', color='tipo_servicio', barmode='group')
+                st.plotly_chart(fig3, use_container_width=True)
 
-            with t2:
-                c_pie, c_bar = st.columns(2)
-                with c_pie:
-                    # Donut Chart Proveedores
-                    fig_pie = px.pie(df_fil, names='proveedor_logistico', values='paquetes', title="Share por Proveedor", hole=0.5, color_discrete_sequence=px.colors.qualitative.Prism)
-                    st.plotly_chart(fig_pie, use_container_width=True)
-                with c_bar:
-                    # Barras Apiladas Clientes vs Servicio
-                    fig_bar = px.bar(df_fil, x='plataforma_cliente', y='paquetes', color='tipo_servicio', title="Cliente vs Tipo Servicio", barmode='group')
-                    st.plotly_chart(fig_bar, use_container_width=True)
+            with tab3:
+                st.dataframe(df_fil, use_container_width=True)
+                # Exportar
+                csv = df_fil.to_csv(index=False).encode('utf-8')
+                st.download_button("Descargar CSV", csv, "reporte.csv", "text/csv")
 
-            with t3:
-                # 4. TABLA Y EXPORTACIÓN
-                st.subheader("Matriz de Datos")
-                
-                # Selector de columnas para reporte
-                all_cols = df_fil.columns.tolist()
-                sel_cols = st.multiselect("Seleccionar Columnas para Reporte", all_cols, default=['fecha', 'proveedor_logistico', 'plataforma_cliente', 'master_lote', 'paquetes', 'comentarios'])
-                
-                df_export = df_fil[sel_cols]
-                st.dataframe(df_export, use_container_width=True)
-                
-                # Generar CSV en memoria
-                csv = df_export.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="📥 Descargar Reporte (CSV)",
-                    data=csv,
-                    file_name=f"Reporte_Nexus_{date.today()}.csv",
-                    mime="text/csv",
-                    type="primary"
-                )
+    # 3. CONFIGURACIÓN DE USUARIO (NUEVA HERRAMIENTA)
+    elif vista == "user_settings":
+        st.title("Configuración de Cuenta")
+        
+        with st.container(border=True):
+            st.subheader("Cambiar Contraseña")
+            p1 = st.text_input("Nueva Contraseña", type="password")
+            p2 = st.text_input("Confirmar Contraseña", type="password")
+            
+            if st.button("Actualizar Contraseña", type="primary"):
+                if p1 and p2 and p1 == p2:
+                    if cambiar_password(u_info['id'], p1):
+                        st.success("Contraseña actualizada correctamente.")
+                    else:
+                        st.error("Error al actualizar.")
+                else:
+                    st.warning("Las contraseñas no coinciden o están vacías.")
 
+    # 4. ADMIN
     elif vista == "admin_users":
         st.title("Usuarios")
         t1, t2 = st.tabs(["Crear", "Lista"])
@@ -460,8 +526,7 @@ else:
                 if st.form_submit_button("Crear"):
                     if admin_crear_usuario(nu, nr): st.success("Creado")
         with t2:
-            df_u = admin_get_users()
-            st.dataframe(df_u, use_container_width=True)
+            df_u = admin_get_users(); st.dataframe(df_u, use_container_width=True)
             c1, c2 = st.columns(2)
             uid = c1.selectbox("ID", df_u['id'].tolist() if not df_u.empty else [])
             if uid and c2.button("Toggle"):
@@ -471,7 +536,7 @@ else:
     elif vista == "admin_reqs":
         st.title("Claves")
         reqs = pd.read_sql("SELECT * FROM password_requests WHERE status='pendiente'", get_connection())
-        if reqs.empty: st.success("Sin pendientes.")
+        if reqs.empty: st.success("Limpio.")
         else:
             for _, r in reqs.iterrows():
                 c1, c2 = st.columns([3, 1])
