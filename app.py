@@ -1,39 +1,66 @@
 import streamlit as st
 import pandas as pd
 import mysql.connector
-from datetime import date, timedelta
-import plotly.express as px
+from datetime import date, timedelta, datetime
 from streamlit_calendar import calendar
 
-# --- 1. CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(page_title="Sistema Logístico", layout="wide", initial_sidebar_state="expanded")
+# --- 1. CONFIGURACIÓN E IMPORTACIONES ---
+st.set_page_config(page_title="Gestión Logística", layout="wide", initial_sidebar_state="collapsed")
 
-# --- 2. ESTILOS CSS (Aquí arreglamos el problema de altura) ---
+# --- 2. CSS AVANZADO (PARA INTEGRACIÓN VISUAL) ---
 st.markdown("""
     <style>
-    /* 1. Forzar altura del calendario para que no se vea vacío */
+    /* Ajustes generales */
+    .block-container { padding-top: 1rem; padding-bottom: 2rem; }
+    
+    /* Estilo del Calendario */
     .fc {
-        height: 750px !important; /* Altura fija obligatoria */
         background-color: white;
-        padding: 10px;
-        border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        border-radius: 8px 0 0 8px; /* Bordes redondeados solo a la izquierda */
+        box-shadow: -2px 2px 5px rgba(0,0,0,0.05);
+        border-right: none;
     }
+    .fc-toolbar-title { font-size: 1.2rem !important; text-transform: capitalize; }
+    .fc-col-header-cell { background-color: #f8f9fa; padding: 10px 0; }
     
-    /* 2. Estilo de las tarjetas de métricas */
-    div[data-testid="stMetric"] {
+    /* Estilo de la Columna de Totales (Lateral) */
+    .totals-sidebar {
         background-color: #f8f9fa;
-        border: 1px solid #e9ecef;
+        border: 1px solid #ddd;
+        border-left: none;
+        border-radius: 0 8px 8px 0; /* Bordes redondeados solo a la derecha */
+        height: 750px; /* Misma altura forzada que el calendario */
         padding: 10px;
-        border-radius: 8px;
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-start;
     }
     
-    /* 3. Ocultar espacios vacíos extra */
-    .block-container { padding-top: 2rem; }
+    .total-card {
+        background-color: white;
+        border-left: 4px solid #2c3e50;
+        padding: 10px;
+        margin-bottom: 15px; /* Espacio para intentar alinear con las semanas */
+        border-radius: 4px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        font-size: 0.85rem;
+    }
+    .total-card h4 { margin: 0 0 5px 0; font-size: 0.9rem; color: #333; }
+    .stat-row { display: flex; justify-content: space-between; margin-bottom: 2px; }
+    .stat-label { color: #666; }
+    .stat-val { font-weight: bold; }
+    
+    /* Estilo de métricas superiores */
+    div[data-testid="stMetric"] {
+        background-color: white;
+        border: 1px solid #eee;
+        border-radius: 8px;
+        padding: 10px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. CONEXIÓN A BASE DE DATOS (Integrada) ---
+# --- 3. BASE DE DATOS ---
 def get_connection():
     return mysql.connector.connect(
         host=st.secrets["mysql"]["host"],
@@ -45,15 +72,13 @@ def get_connection():
 def cargar_datos():
     try:
         conn = get_connection()
-        query = "SELECT * FROM registro_diario"
-        df = pd.read_sql(query, conn)
+        df = pd.read_sql("SELECT * FROM registro_diario", conn)
         conn.close()
         if not df.empty:
             df['fecha'] = pd.to_datetime(df['fecha'])
             df['fecha_str'] = df['fecha'].dt.strftime('%Y-%m-%d')
         return df
-    except Exception as e:
-        # Si falla la conexión, devolvemos DataFrame vacío para no romper la app
+    except:
         return pd.DataFrame()
 
 def guardar_registro(fecha, paquetes, masters, proveedor, comentarios):
@@ -65,15 +90,16 @@ def guardar_registro(fecha, paquetes, masters, proveedor, comentarios):
     ON DUPLICATE KEY UPDATE
     paquetes=%s, masters=%s, proveedor=%s, comentarios=%s
     """
-    vals = (fecha, paquetes, masters, proveedor, comentarios, paquetes, masters, proveedor, comentarios)
-    cursor.execute(query, vals)
+    cursor.execute(query, (fecha, paquetes, masters, proveedor, comentarios, paquetes, masters, proveedor, comentarios))
     conn.commit()
     conn.close()
 
-# --- 4. VENTANA EMERGENTE (MODAL) ---
+# --- 4. VENTANA FLOTANTE (SOLUCIÓN CLIC) ---
 @st.dialog("📝 Editar Registro")
 def modal_registro(fecha_sel, datos=None):
-    st.write(f"Gestionando fecha: **{fecha_sel}**")
+    # Convertir string a objeto date para mostrar bonito
+    fecha_obj = datetime.strptime(fecha_sel, '%Y-%m-%d').date()
+    st.markdown(f"### 📅 {fecha_obj.strftime('%A %d de %B, %Y')}")
     
     d_paq = datos['paquetes'] if datos else 0
     d_mast = datos['masters'] if datos else 0
@@ -82,137 +108,142 @@ def modal_registro(fecha_sel, datos=None):
 
     with st.form("entry_form"):
         c1, c2 = st.columns(2)
-        paq = c1.number_input("📦 Paquetes", min_value=0, value=d_paq)
-        mast = c2.number_input("🧱 Másters", min_value=0, value=d_mast)
-        prov = st.text_input("🚚 Proveedor", value=d_prov)
-        com = st.text_area("💬 Comentarios", value=d_com)
+        paq = c1.number_input("📦 Cantidad Paquetes", min_value=0, value=d_paq, step=1)
+        mast = c2.number_input("🧱 Cantidad Másters", min_value=0, value=d_mast, step=1)
+        prov = st.text_input("🚚 Proveedor", value=d_prov, placeholder="Ej: DHL")
+        com = st.text_area("💬 Comentarios / Incidencias", value=d_com)
         
-        if st.form_submit_button("💾 Guardar"):
-            guardar_registro(fecha_sel, paq, mast, prov, com)
-            st.rerun()
+        col_b1, col_b2 = st.columns([1,1])
+        with col_b1:
+            if st.form_submit_button("💾 Guardar Datos", type="primary", use_container_width=True):
+                guardar_registro(fecha_sel, paq, mast, prov, com)
+                st.rerun()
 
-# --- 5. LOGICA PRINCIPAL (MENÚ LATERAL) ---
+# --- 5. LOGICA PRINCIPAL ---
 df = cargar_datos()
 
-# CREAMOS EL MENÚ DE NAVEGACIÓN MANUALMENTE
-st.sidebar.title("Navegación")
-opcion = st.sidebar.radio("Ir a:", ["📅 Calendario", "📊 Dashboard de Análisis"], index=0)
+# --- CABECERA DE TOTALES GLOBALES ---
+st.title("Sistema de Control Logístico")
 
-st.sidebar.markdown("---")
-# Botón de emergencia para llenar datos si la tabla está vacía
-if st.sidebar.button("🛠️ Generar Datos de Prueba"):
-    import random
-    fechas = [date.today() + timedelta(days=i) for i in range(-5, 5)]
-    for f in fechas:
-        guardar_registro(f, random.randint(100,800), random.randint(10,50), 
-                         random.choice(['DHL', 'FedEx', 'UPS']), "Dato de prueba")
-    st.sidebar.success("¡Datos creados! Recargando...")
-    st.rerun()
+if not df.empty:
+    # Filtros rápidos para métricas
+    hoy = date.today()
+    mes_actual = hoy.month
+    df_mes = df[df['fecha'].dt.month == mes_actual]
+    
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("📦 Paquetes (Mes)", f"{df_mes['paquetes'].sum():,}")
+    m2.metric("🧱 Másters (Mes)", f"{df_mes['masters'].sum():,}")
+    m3.metric("📅 Días Operados", len(df_mes))
+    m4.metric("📊 Promedio Diario", f"{int(df_mes['paquetes'].mean()) if not df_mes.empty else 0}")
 
-# --- VISTA 1: CALENDARIO ---
-if opcion == "📅 Calendario":
-    # Cabecera con totales rápidos
-    c_title, c_kpi = st.columns([2, 1])
-    with c_title:
-        st.title(f"Calendario Logístico | {date.today().strftime('%B %Y')}")
-    with c_kpi:
-        if not df.empty:
-            st.metric("Total Global", f"📦 {df['paquetes'].sum():,}")
+st.divider()
 
-    # Preparar Eventos
+# --- LAYOUT PRINCIPAL: CALENDARIO + COLUMNA TOTALES ---
+col_cal, col_totales = st.columns([5, 1], gap="small")
+
+with col_cal:
     events = []
     if not df.empty:
-        # Eventos Diarios
         for _, row in df.iterrows():
-            events.append({
-                "title": f"📦{row['paquetes']} | 🧱{row['masters']}",
-                "start": row['fecha_str'],
-                "color": "#3788d8",
-                "extendedProps": {
-                    "type": "data",
-                    "paquetes": row['paquetes'],
-                    "masters": row['masters'],
-                    "proveedor": row['proveedor'],
-                    "comentarios": row['comentarios']
-                }
-            })
-        
-        # Eventos de Resumen Semanal
-        df['year_week'] = df['fecha'].dt.strftime('%Y-%U')
-        resumen = df.groupby('year_week')[['paquetes', 'masters']].sum()
-        for yw, row in resumen.iterrows():
-            last_date = df[df['year_week'] == yw]['fecha'].max().strftime('%Y-%m-%d')
-            events.append({
-                "title": f"∑: 📦{row['paquetes']} | 🧱{row['masters']}",
-                "start": last_date,
-                "color": "#212529", # Negro
-                "display": "block",
-                "extendedProps": {"type": "summary"}
-            })
+            # EVENTO 1: PAQUETES (AZUL)
+            if row['paquetes'] > 0:
+                events.append({
+                    "title": f"📦 {row['paquetes']}",
+                    "start": row['fecha_str'],
+                    "color": "#3788d8", # Azul
+                    "textColor": "white",
+                    "allDay": True,
+                    "extendedProps": {
+                        "paquetes": row['paquetes'], "masters": row['masters'],
+                        "proveedor": row['proveedor'], "comentarios": row['comentarios']
+                    }
+                })
+            # EVENTO 2: MASTERS (NARANJA) - SEPARADO PARA MEJOR DISEÑO
+            if row['masters'] > 0:
+                events.append({
+                    "title": f"🧱 {row['masters']}",
+                    "start": row['fecha_str'],
+                    "color": "#f39c12", # Naranja
+                    "textColor": "white",
+                    "allDay": True,
+                    "extendedProps": {
+                        "paquetes": row['paquetes'], "masters": row['masters'],
+                        "proveedor": row['proveedor'], "comentarios": row['comentarios']
+                    }
+                })
+            # Si ambos son 0 pero hay registro (comentario), ponemos gris
+            if row['paquetes'] == 0 and row['masters'] == 0:
+                events.append({
+                    "title": "📝 Nota",
+                    "start": row['fecha_str'],
+                    "color": "#95a5a6",
+                    "extendedProps": {
+                        "paquetes": row['paquetes'], "masters": row['masters'],
+                        "proveedor": row['proveedor'], "comentarios": row['comentarios']
+                    }
+                })
 
-    # CONFIGURACIÓN DEL CALENDARIO (CSS Height arreglado)
     cal_options = {
         "editable": False,
-        "selectable": True,
-        "headerToolbar": {"left": "prev,next today", "center": "title", "right": "dayGridMonth"},
+        "selectable": True, # IMPORTANTE PARA EL CLIC
+        "headerToolbar": {
+            "left": "prev,next today",
+            "center": "title",
+            "right": "dayGridMonth"
+        },
         "initialView": "dayGridMonth",
-        "locale": "es"
+        "height": "750px", # Altura fija sincronizada
+        "locale": "es",
+        "dayMaxEvents": 3 # Si hay más de 3, muestra "+more"
     }
 
-    # Renderizar Calendario
-    state = calendar(events=events, options=cal_options, key="mi_calendario")
+    state = calendar(events=events, options=cal_options, key="mi_calendario_pro")
 
-    # Manejar Clics
+    # --- LÓGICA DE DETECCIÓN DE CLIC MEJORADA ---
     if state.get("dateClick"):
-        clicked_data = state["dateClick"]
-        if isinstance(clicked_data, dict) and "dateStr" in clicked_data:
-            modal_registro(clicked_data["dateStr"])
-            
-    elif state.get("eventClick"):
-        clicked_event = state["eventClick"]
-        if isinstance(clicked_event, dict) and "event" in clicked_event:
-            ev = clicked_event["event"]
-            if ev.get("extendedProps", {}).get("type") == "data":
-                date_part = ev["start"].split("T")[0]
-                modal_registro(date_part, ev["extendedProps"])
-
-# --- VISTA 2: DASHBOARD ---
-elif opcion == "📊 Dashboard de Análisis":
-    st.title("Tablero de Control e Inteligencia")
+        # Clic en celda vacía
+        fecha = state["dateClick"]["dateStr"]
+        modal_registro(fecha)
     
-    if df.empty:
-        st.warning("No hay datos registrados. Ve al Calendario y registra actividad.")
+    elif state.get("eventClick"):
+        # Clic en un evento existente
+        datos_evento = state["eventClick"]["event"]
+        fecha = datos_evento["start"].split("T")[0]
+        # Recuperamos los datos guardados en 'extendedProps'
+        props = datos_evento.get("extendedProps", {})
+        modal_registro(fecha, props)
+
+with col_totales:
+    st.markdown('<div class="totals-sidebar">', unsafe_allow_html=True)
+    st.markdown("### 🗓️ Totales Semanales")
+    st.markdown("<small>Resumen de la vista actual</small><hr>", unsafe_allow_html=True)
+    
+    if not df.empty:
+        # Calcular semanas presentes en los datos
+        df['semana'] = df['fecha'].dt.isocalendar().week
+        # Agrupamos
+        resumen = df.groupby('semana')[['paquetes', 'masters']].sum().sort_index()
+        
+        # Generamos las "Tarjetas" visuales
+        if resumen.empty:
+            st.info("Sin datos")
+        else:
+            for semana, fila in resumen.iterrows():
+                st.markdown(f"""
+                <div class="total-card">
+                    <h4>Semana {semana}</h4>
+                    <div class="stat-row">
+                        <span class="stat-label">📦 Paq:</span>
+                        <span class="stat-val">{fila['paquetes']}</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="stat-label">🧱 Mast:</span>
+                        <span class="stat-val">{fila['masters']}</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
     else:
-        # Filtros
-        col_f1, col_f2 = st.columns(2)
-        with col_f1:
-            mes = st.selectbox("Mes", range(1,13), index=date.today().month-1)
-        with col_f2:
-            anio = st.number_input("Año", value=date.today().year)
-            
-        df_filt = df[(df['fecha'].dt.month == mes) & (df['fecha'].dt.year == anio)]
-        
-        # KPIs
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Paquetes (Mes)", df_filt['paquetes'].sum())
-        k2.metric("Másters (Mes)", df_filt['masters'].sum())
-        k3.metric("Promedio Diario", int(df_filt['paquetes'].mean()) if not df_filt.empty else 0)
-        k4.metric("Días Operados", len(df_filt))
-        
-        st.markdown("---")
-        
-        # Gráficas
-        g1, g2 = st.columns(2)
-        with g1:
-            st.subheader("Tendencia Mensual")
-            fig = px.line(df_filt, x='fecha', y=['paquetes', 'masters'], markers=True)
-            st.plotly_chart(fig, use_container_width=True)
-        with g2:
-            st.subheader("Proveedores")
-            df_prov = df_filt.groupby('proveedor')['paquetes'].sum().reset_index()
-            fig2 = px.pie(df_prov, values='paquetes', names='proveedor', hole=0.4)
-            st.plotly_chart(fig2, use_container_width=True)
-            
-        st.subheader("Resumen Semanal")
-        df_filt['Semana'] = df_filt['fecha'].dt.isocalendar().week
-        st.bar_chart(df_filt.groupby('Semana')['paquetes'].sum())
+        st.write("Registra datos para ver totales.")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
