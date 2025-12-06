@@ -6,10 +6,10 @@ from streamlit_calendar import calendar
 import plotly.express as px
 import time
 
-# --- 1. CONFIGURACIÓN Y ESTILOS MODERNOS ---
+# --- 1. CONFIGURACIÓN Y ESTILOS ---
 st.set_page_config(page_title="Nexus Logística", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS AVANZADO (Animaciones, Sombras, Botones Redondos)
+# CSS (Mantenemos los estilos de botones y tarjetas, quitamos el del Login Box)
 st.markdown("""
     <style>
     /* Fondo y Fuente Global */
@@ -17,47 +17,13 @@ st.markdown("""
     
     /* Botón Flotante "+" (Estilo Material Design) */
     div.stButton > button:first-child {
-        border-radius: 12px;
+        border-radius: 8px;
         transition: all 0.3s ease;
         font-weight: 600;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
-    div.stButton > button:first-child:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 12px rgba(0,0,0,0.15);
-    }
-
-    /* Estilo para el botón "+" específico */
-    .plus-btn { 
-        background-color: #2563eb !important; 
-        color: white !important; 
-        font-size: 24px !important;
-        border-radius: 50% !important;
-        width: 60px !important;
-        height: 60px !important;
-        padding: 0 !important;
-    }
-
-    /* Tarjetas de Métricas */
-    .metric-card {
-        background: white;
-        padding: 20px;
-        border-radius: 15px;
-        border-left: 5px solid #3b82f6;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        transition: transform 0.2s;
-    }
-    .metric-card:hover { transform: scale(1.02); }
-
-    /* Login Box */
-    .login-box {
-        max-width: 400px;
-        margin: auto;
-        padding: 40px;
-        background: white;
-        border-radius: 20px;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-    }
+    
+    /* Centrar verticalmente el login */
+    .stTextInput label { font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -148,7 +114,6 @@ def guardar_registro(id_reg, fecha, prov, plat, serv, mast, paq, com):
 def modal_registro(datos=None):
     st.markdown("### Detalles del Ingreso")
     
-    # Valores por defecto
     d_fecha = date.today()
     d_prov = PROVEEDORES_LOGISTICOS[0]
     d_plat = PLATAFORMAS_CLIENTE[0]
@@ -191,24 +156,18 @@ def modal_registro(datos=None):
             else:
                 st.error("⚠️ Falta ID Master o Paquetes")
 
-@st.dialog("📊 Centro de Análisis y Reportes", width="large")
+@st.dialog("📊 Centro de Análisis", width="large")
 def modal_dashboard(df):
-    st.markdown("### 🔎 Filtros de Análisis")
+    st.markdown("### 🔎 Filtros")
     
-    # --- FILTROS ---
     cf1, cf2, cf3, cf4 = st.columns(4)
-    with cf1:
-        filtro_prov = st.multiselect("Proveedor", df['proveedor_logistico'].unique())
-    with cf2:
-        filtro_plat = st.multiselect("Plataforma", df['plataforma_cliente'].unique())
-    with cf3:
-        # Filtro de Mes
+    with cf1: filtro_prov = st.multiselect("Proveedor", df['proveedor_logistico'].unique())
+    with cf2: filtro_plat = st.multiselect("Plataforma", df['plataforma_cliente'].unique())
+    with cf3: 
         meses = df['fecha'].dt.month_name().unique()
         filtro_mes = st.multiselect("Mes", meses)
-    with cf4:
-        serv_filtro = st.multiselect("Servicio", df['tipo_servicio'].unique())
+    with cf4: serv_filtro = st.multiselect("Servicio", df['tipo_servicio'].unique())
         
-    # Aplicar filtros
     df_filtered = df.copy()
     if filtro_prov: df_filtered = df_filtered[df_filtered['proveedor_logistico'].isin(filtro_prov)]
     if filtro_plat: df_filtered = df_filtered[df_filtered['plataforma_cliente'].isin(filtro_plat)]
@@ -218,49 +177,33 @@ def modal_dashboard(df):
     st.divider()
     
     if df_filtered.empty:
-        st.warning("No hay datos con estos filtros.")
+        st.warning("No hay datos.")
         return
 
-    # --- KPI CARDS ---
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Total Paquetes", f"{df_filtered['paquetes'].sum():,}")
     k2.metric("Total Masters", len(df_filtered))
     top_p = df_filtered.groupby('plataforma_cliente')['paquetes'].sum().idxmax()
     k3.metric("Top Plataforma", top_p)
     prom = int(df_filtered['paquetes'].mean())
-    k4.metric("Promedio x Lote", prom)
+    k4.metric("Promedio", prom)
     
     st.divider()
 
-    # --- GRÁFICOS ---
-    tab1, tab2, tab3 = st.tabs(["📈 Evolución", "🍰 Distribución", "📅 Semanal"])
-    
+    tab1, tab2 = st.tabs(["📈 Evolución", "🍰 Distribución"])
     with tab1:
-        # Linea temporal
         df_dia = df_filtered.groupby('fecha')['paquetes'].sum().reset_index()
         fig_line = px.line(df_dia, x='fecha', y='paquetes', markers=True, title="Volumen Diario")
-        fig_line.update_layout(height=350)
         st.plotly_chart(fig_line, use_container_width=True)
-        
     with tab2:
-        col_g1, col_g2 = st.columns(2)
-        with col_g1:
-            fig_pie1 = px.pie(df_filtered, values='paquetes', names='proveedor_logistico', title="Share x Proveedor", hole=0.4)
-            st.plotly_chart(fig_pie1, use_container_width=True)
-        with col_g2:
-            fig_pie2 = px.bar(df_filtered, x='plataforma_cliente', y='paquetes', color='tipo_servicio', title="Paquetes x Plataforma")
-            st.plotly_chart(fig_pie2, use_container_width=True)
-            
-    with tab3:
-        df_filtered['semana'] = df_filtered['fecha'].dt.isocalendar().week
-        df_sem = df_filtered.groupby('semana')['paquetes'].sum().reset_index()
-        st.bar_chart(df_sem, x='semana', y='paquetes')
+        c_p1, c_p2 = st.columns(2)
+        with c_p1: st.plotly_chart(px.pie(df_filtered, values='paquetes', names='proveedor_logistico', title="Prov. Logístico"), use_container_width=True)
+        with c_p2: st.plotly_chart(px.pie(df_filtered, values='paquetes', names='plataforma_cliente', title="Cliente"), use_container_width=True)
 
-@st.dialog("🛡️ Panel de Administrador", width="large")
+@st.dialog("🛡️ Panel Admin", width="large")
 def modal_admin():
     st.subheader("Gestión de Usuarios")
     
-    # Crear Usuario
     with st.expander("➕ Crear Nuevo Usuario"):
         with st.form("new_user"):
             nu_name = st.text_input("Usuario")
@@ -271,62 +214,63 @@ def modal_admin():
                     st.success(f"Usuario {nu_name} creado.")
                     st.rerun()
                 else:
-                    st.error("Error al crear (quizás el usuario ya existe).")
+                    st.error("Error al crear.")
     
-    # Listar Usuarios
     conn = get_connection()
     users = pd.read_sql("SELECT id, username, rol, activo, created_at FROM usuarios", conn)
     conn.close()
-    
     st.dataframe(users, use_container_width=True, hide_index=True)
     
-    # Acciones
     col_a, col_b = st.columns(2)
     with col_a:
-        u_sel = st.selectbox("Seleccionar ID Usuario para acción", users['id'].tolist())
+        u_sel = st.selectbox("ID Usuario", users['id'].tolist())
     with col_b:
         estado_actual = users[users['id']==u_sel]['activo'].values[0] if not users.empty else 0
-        btn_txt = "🔴 Desactivar" if estado_actual else "🟢 Activar"
+        btn_txt = "Desactivar" if estado_actual else "Activar"
         if st.button(btn_txt):
             admin_toggle_usuario(u_sel, estado_actual)
             st.rerun()
 
-# --- 7. LÓGICA PRINCIPAL (LOGIN + APP) ---
+# --- 7. LÓGICA PRINCIPAL (LOGIN MODIFICADO) ---
 
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 
 if not st.session_state['logged_in']:
-    # --- PANTALLA DE LOGIN ---
-    c1, c2, c3 = st.columns([1,1,1])
-    with c2:
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        st.markdown("<div class='login-box'><h2 style='text-align:center;'>🔐 Nexus Logística</h2><p style='text-align:center;color:gray;'>Inicia sesión para continuar</p>", unsafe_allow_html=True)
+    # --- PANTALLA DE LOGIN LIMPIA ---
+    # Usamos columnas para centrar los inputs en la pantalla
+    c_izq, c_centro, c_der = st.columns([1, 1, 1])
+    
+    with c_centro:
+        # Espacio en blanco vertical para que no quede pegado arriba
+        st.markdown("<br><br><br><br>", unsafe_allow_html=True)
         
+        # INPUTS DIRECTOS (Sin recuadros, sin titulos)
         u = st.text_input("Usuario")
         p = st.text_input("Contraseña", type="password")
         
-        if st.button("INGRESAR", type="primary", use_container_width=True):
+        # Espacio pequeño
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        if st.button("INICIAR", type="primary", use_container_width=True):
             user_data = verificar_login(u, p)
             if user_data:
                 st.session_state['logged_in'] = True
                 st.session_state['user_info'] = user_data
                 st.rerun()
             else:
-                st.error("Credenciales incorrectas o usuario inactivo.")
-        st.markdown("</div>", unsafe_allow_html=True)
+                st.error("Datos incorrectos")
 
 else:
-    # --- APLICACIÓN PRINCIPAL ---
+    # --- APLICACIÓN PRINCIPAL (DASHBOARD) ---
     
-    # ENCABEZADO SUPERIOR
+    # Encabezado
     col_logo, col_actions, col_user = st.columns([2, 4, 1.5], gap="small")
     
     with col_logo:
         st.markdown("### 📦 Control Logístico")
     
     with col_actions:
-        # Botones de Acción en el Header
         c_btn1, c_btn2 = st.columns(2)
         with c_btn1:
             if st.button("➕ NUEVO REGISTRO", use_container_width=True):
@@ -337,7 +281,6 @@ else:
                 modal_dashboard(df_dash)
 
     with col_user:
-        # Menú de Usuario / Admin
         user_role = st.session_state['user_info']['rol']
         with st.expander(f"👤 {st.session_state['user_info']['username']}"):
             if user_role == 'admin':
@@ -349,19 +292,17 @@ else:
 
     st.markdown("---")
 
-    # CALENDARIO PRINCIPAL
+    # Calendario
     df = cargar_datos_logistica()
     
     events = []
     if not df.empty:
         for _, row in df.iterrows():
-            # Color Coding basado en Plataforma
-            color = "#6c757d" # Default gris
-            if row['plataforma_cliente'] == "AliExpress": color = "#f97316" # Naranja
-            elif row['plataforma_cliente'] == "Shein": color = "#000000" # Negro
-            elif row['plataforma_cliente'] == "Temu": color = "#ea580c" # Naranja fuerte
+            color = "#6c757d"
+            if row['plataforma_cliente'] == "AliExpress": color = "#f97316"
+            elif row['plataforma_cliente'] == "Shein": color = "#000000"
+            elif row['plataforma_cliente'] == "Temu": color = "#ea580c"
             
-            # Título del evento combina Proveedor y Paquetes
             title_evt = f"{row['paquetes']} - {row['proveedor_logistico']} ({row['plataforma_cliente']})"
             
             events.append({
@@ -392,15 +333,12 @@ else:
 
     state = calendar(events=events, options=cal_ops, key="calendar_pro")
 
-    # CLICK PARA EDITAR
     if state.get("eventClick"):
         props = state["eventClick"]["event"]["extendedProps"]
         modal_registro(props)
 
-    # CLICK EN DÍA VACÍO (Opcional, si quieres que al dar clic en dia tambien abra)
     if state.get("dateClick"):
         fecha_clic = state["dateClick"]["dateStr"]
-        # Preparamos un objeto dummy solo con la fecha
         dummy_data = {'id': None, 'fecha_str': fecha_clic, 'proveedor_logistico': PROVEEDORES_LOGISTICOS[0], 
                       'plataforma_cliente': PLATAFORMAS_CLIENTE[0], 'tipo_servicio': TIPOS_SERVICIO[0], 
                       'master_lote': '', 'paquetes': 0, 'comentarios': ''}
