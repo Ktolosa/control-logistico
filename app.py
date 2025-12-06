@@ -15,14 +15,35 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_info' not in st.session_state: st.session_state['user_info'] = None
 if 'nav_selection' not in st.session_state: st.session_state['nav_selection'] = "📅 Calendario"
 
-# --- 3. ESTILOS CSS (FIX UI + HIDE TOOLBAR) ---
+# --- 3. ESTILOS CSS CORREGIDOS ---
 st.markdown("""
     <style>
-    /* 1. OCULTAR BARRA SUPERIOR (GITHUB/DEPLOY) */
-    [data-testid="stToolbar"] { visibility: hidden !important; display: none !important; }
-    header { visibility: hidden !important; display: none !important; }
-    footer { visibility: hidden !important; display: none !important; }
+    /* 1. OCULTAR ELEMENTOS INNECESARIOS PERO MANTENER EL BOTÓN DE EXPANDIR */
     
+    /* Ocultar el menú de hamburguesa y deploy a la derecha */
+    [data-testid="stToolbar"] {
+        visibility: hidden;
+        height: 0px;
+    }
+    
+    /* Ocultar la decoración de colores superior */
+    [data-testid="stDecoration"] {
+        visibility: hidden;
+        display: none;
+    }
+    
+    /* IMPORTANTE: Hacemos el header transparente para que no estorbe, 
+       pero NO usamos 'display:none' para que el botón de expandir (>) siga existiendo */
+    [data-testid="stHeader"] {
+        background-color: rgba(0,0,0,0);
+        z-index: 1; 
+    }
+    
+    /* Ajuste para que el contenido suba un poco ya que quitamos la barra visualmente */
+    .block-container {
+        padding-top: 2rem;
+    }
+
     /* 2. ESTILO GENERAL */
     .stApp { background-color: #f4f7f6; font-family: 'Segoe UI', sans-serif; }
     
@@ -33,11 +54,16 @@ st.markdown("""
         max-width: 420px; margin: 50px auto; border-top: 5px solid #3b82f6;
     }
     
-    /* 4. SIDEBAR REDISEÑADA */
+    /* 4. SIDEBAR REDISEÑADA Y LIMPIA */
     [data-testid="stSidebar"] {
         background-color: #ffffff;
         border-right: 1px solid #eaecf0;
     }
+    /* Quitar padding extra del sidebar nativo */
+    [data-testid="stSidebarUserContent"] {
+        padding-top: 2rem;
+    }
+    
     .sidebar-profile {
         text-align: center; padding: 20px 10px;
         background: #f8fafc; border-radius: 12px; margin-bottom: 20px;
@@ -48,6 +74,12 @@ st.markdown("""
     .sidebar-role { 
         background-color: #e0f2fe; color: #0284c7; 
         padding: 2px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 600;
+    }
+    
+    /* Menú de navegación personalizado */
+    .nav-header {
+        font-size: 0.8rem; color: #94a3b8; font-weight: 700; 
+        margin-top: 10px; margin-bottom: 5px; letter-spacing: 0.05em;
     }
     
     /* 5. TARJETAS MÉTRICAS */
@@ -164,7 +196,7 @@ def modal_registro(datos=None):
     d_mast, d_paq, d_com, d_id = "", 0, "", None
 
     if datos:
-        # AQUÍ ES DONDE ANTES DABA ERROR: Aseguramos que 'datos' sea un dict limpio
+        # Aseguramos que 'datos' sea un dict limpio
         d_id = datos.get('id')
         f_str = datos.get('fecha_str')
         if f_str: d_fecha = datetime.strptime(f_str, '%Y-%m-%d').date()
@@ -247,7 +279,7 @@ else:
     
     # ---------------- BARRA LATERAL REDISEÑADA ----------------
     with st.sidebar:
-        # 1. PERFIL CARD
+        # 1. PERFIL CARD (Diseño Mejorado)
         icon_av = AVATARS.get(u_info.get('avatar', 'avatar_1'), '👨‍💼')
         st.markdown(f"""
         <div class="sidebar-profile">
@@ -257,25 +289,26 @@ else:
         </div>
         """, unsafe_allow_html=True)
         
-        with st.expander("✏️ Editar Perfil"):
+        # Expander discreto para edición
+        with st.expander("✏️ Editar Avatar"):
             cols = st.columns(5)
             for i, (k, v) in enumerate(AVATARS.items()):
                 with cols[i%5]:
                     if st.button(v, key=f"s_{k}"): actualizar_avatar(u_info['id'], k); st.rerun()
         
-        st.markdown("---")
-        
         # 2. NAVEGACIÓN LIMPIA
-        st.caption("MENÚ PRINCIPAL")
+        st.markdown("<div class='nav-header'>MENÚ PRINCIPAL</div>", unsafe_allow_html=True)
+        
         opts = ["📅 Calendario", "📊 Dashboards"]
         idx = 0 if st.session_state['nav_selection'] == "📅 Calendario" else 1
         sel = st.radio("Ir a:", opts, index=idx, label_visibility="collapsed")
         st.session_state['nav_selection'] = sel
         
-        # 3. ADMIN PANEL
+        # 3. ADMIN PANEL (Solo visible si es Admin)
         if rol == 'admin':
-            st.markdown("---")
-            st.caption("ADMINISTRACIÓN")
+            st.divider()
+            st.markdown("<div class='nav-header'>ADMINISTRACIÓN</div>", unsafe_allow_html=True)
+            
             with st.expander("👥 Usuarios y Claves"):
                 with st.form("add_u"):
                     nu = st.text_input("Usuario nuevo")
@@ -295,6 +328,7 @@ else:
                             st.rerun()
         
         st.markdown("---")
+        # 4. BOTÓN CERRAR SESIÓN (Más visible)
         if st.button("🔒 Cerrar Sesión", use_container_width=True):
             st.session_state['logged_in'] = False; st.rerun()
 
@@ -317,8 +351,7 @@ else:
                 elif "Temu" in r['plataforma_cliente']: color = "#10b981"
                 elif "Shein" in r['plataforma_cliente']: color = "#0f172a"
                 
-                # SOLUCION DEL ERROR MARSHALL:
-                # Convertimos todo a tipos nativos de Python (str, int) antes de pasarlo
+                # Conversión estricta a tipos nativos para evitar MarshallError
                 props = {
                     "id": int(r['id']),
                     "fecha_str": str(r['fecha_str']),
@@ -335,13 +368,12 @@ else:
                     "start": r['fecha_str'],
                     "backgroundColor": color,
                     "borderColor": color,
-                    "extendedProps": props # Pasamos el diccionario limpio
+                    "extendedProps": props
                 })
 
         cal = calendar(events=evts, options={"initialView": "dayGridMonth", "height": "750px"}, key="cal_main")
         
         if cal.get("eventClick"):
-            # Pasamos los props limpios al modal
             modal_registro(cal["eventClick"]["event"]["extendedProps"])
 
     elif st.session_state['nav_selection'] == "📊 Dashboards":
