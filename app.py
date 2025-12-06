@@ -9,20 +9,14 @@ import time
 # --- 1. CONFIGURACIÓN Y ESTILOS ---
 st.set_page_config(page_title="Nexus Logística", layout="wide", initial_sidebar_state="collapsed")
 
-# CSS (Mantenemos los estilos de botones y tarjetas, quitamos el del Login Box)
 st.markdown("""
     <style>
-    /* Fondo y Fuente Global */
     .stApp { background-color: #f4f6f9; font-family: 'Segoe UI', sans-serif; }
-    
-    /* Botón Flotante "+" (Estilo Material Design) */
     div.stButton > button:first-child {
         border-radius: 8px;
         transition: all 0.3s ease;
         font-weight: 600;
     }
-    
-    /* Centrar verticalmente el login */
     .stTextInput label { font-weight: bold; }
     </style>
 """, unsafe_allow_html=True)
@@ -38,12 +32,16 @@ def get_connection():
 
 # --- 3. AUTENTICACIÓN ---
 def verificar_login(username, password):
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-    cursor.execute("SELECT * FROM usuarios WHERE username=%s AND password=%s AND activo=1", (username, password))
-    user = cursor.fetchone()
-    conn.close()
-    return user
+    try:
+        conn = get_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("SELECT * FROM usuarios WHERE username=%s AND password=%s AND activo=1", (username, password))
+        user = cursor.fetchone()
+        conn.close()
+        return user
+    except Exception as e:
+        st.error(f"Error de conexión: {e}")
+        return None
 
 def admin_crear_usuario(user, pwd, role):
     conn = get_connection()
@@ -77,17 +75,23 @@ def cargar_datos_logistica():
         query = "SELECT * FROM registro_logistica ORDER BY fecha DESC"
         df = pd.read_sql(query, conn)
         conn.close()
+        
         if not df.empty:
-            df['fecha'] = pd.to_datetime(df['fecha'])
+            # CORRECCIÓN PRINCIPAL: Forzar conversión a datetime con manejo de errores
+            df['fecha'] = pd.to_datetime(df['fecha'], errors='coerce')
+            # Eliminar filas donde la fecha sea NaT (Not a Time) si hubo error
+            df = df.dropna(subset=['fecha'])
             df['fecha_str'] = df['fecha'].dt.strftime('%Y-%m-%d')
+            
         return df
-    except:
-        return pd.DataFrame()
+    except Exception as e:
+        # En caso de error, devolver DF vacío pero con columnas correctas para no romper el dashboard
+        return pd.DataFrame(columns=['id', 'fecha', 'proveedor_logistico', 'plataforma_cliente', 'tipo_servicio', 'master_lote', 'paquetes', 'comentarios'])
 
 def guardar_registro(id_reg, fecha, prov, plat, serv, mast, paq, com):
     conn = get_connection()
     cursor = conn.cursor()
-    usuario_actual = st.session_state['user_info']['username']
+    usuario_actual = st.session_state.get('user_info', {}).get('username', 'sistema')
     
     if id_reg is None: # Nuevo
         sql = """INSERT INTO registro_logistica 
@@ -122,8 +126,14 @@ def modal_registro(datos=None):
 
     if datos:
         d_id = datos['id']
-        try: d_fecha = datetime.strptime(datos['fecha_str'], '%Y-%m-%d').date()
+        try: 
+            # Manejo seguro de fecha al editar
+            if isinstance(datos['fecha_str'], str):
+                d_fecha = datetime.strptime(datos['fecha_str'], '%Y-%m-%d').date()
+            else:
+                d_fecha = datos['fecha_str'] # Si ya viene como objeto date
         except: pass
+        
         if datos['proveedor_logistico'] in PROVEEDORES_LOGISTICOS: d_prov = datos['proveedor_logistico']
         if datos['plataforma_cliente'] in PLATAFORMAS_CLIENTE: d_plat = datos['plataforma_cliente']
         if datos['tipo_servicio'] in TIPOS_SERVICIO: d_serv = datos['tipo_servicio']
@@ -160,32 +170,59 @@ def modal_registro(datos=None):
 def modal_dashboard(df):
     st.markdown("### 🔎 Filtros")
     
+    # 1. VALIDACIÓN PREVIA Y CONVERSIÓN SEGURA
+    if df.empty or 'fecha' not in df.columns:
+        st.warning("No hay datos suficientes para generar gráficos.")
+        return
+
+    # Aseguramos que sea datetime, si falla pone NaT
+    df['fecha'] = pd.to_datetime(df['fecha'], errors='coerce')
+    df = df.dropna(subset=['fecha']) # Eliminamos lo que no sea fecha
+    
+    if df.empty:
+        st.warning("Los datos de fecha no son válidos.")
+        return
+
+    # Diccionario para meses en Español
+    meses_map = {
+        1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
+        7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+    }
+    df['mes_num'] = df['fecha'].dt.month
+    df['nombre_mes'] = df['mes_num'].map(meses_map)
+    
     cf1, cf2, cf3, cf4 = st.columns(4)
     with cf1: filtro_prov = st.multiselect("Proveedor", df['proveedor_logistico'].unique())
     with cf2: filtro_plat = st.multiselect("Plataforma", df['plataforma_cliente'].unique())
     with cf3: 
-        meses = df['fecha'].dt.month_name().unique()
-        filtro_mes = st.multiselect("Mes", meses)
+        # Usamos la columna mapeada en español
+        lista_meses = df['nombre_mes'].unique().tolist()
+        filtro_mes = st.multiselect("Mes", lista_meses)
     with cf4: serv_filtro = st.multiselect("Servicio", df['tipo_servicio'].unique())
         
     df_filtered = df.copy()
     if filtro_prov: df_filtered = df_filtered[df_filtered['proveedor_logistico'].isin(filtro_prov)]
     if filtro_plat: df_filtered = df_filtered[df_filtered['plataforma_cliente'].isin(filtro_plat)]
-    if filtro_mes: df_filtered = df_filtered[df_filtered['fecha'].dt.month_name().isin(filtro_mes)]
+    if filtro_mes: df_filtered = df_filtered[df_filtered['nombre_mes'].isin(filtro_mes)]
     if serv_filtro: df_filtered = df_filtered[df_filtered['tipo_servicio'].isin(serv_filtro)]
 
     st.divider()
     
     if df_filtered.empty:
-        st.warning("No hay datos.")
+        st.warning("No hay datos con estos filtros.")
         return
 
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Total Paquetes", f"{df_filtered['paquetes'].sum():,}")
     k2.metric("Total Masters", len(df_filtered))
-    top_p = df_filtered.groupby('plataforma_cliente')['paquetes'].sum().idxmax()
+    
+    try:
+        top_p = df_filtered.groupby('plataforma_cliente')['paquetes'].sum().idxmax()
+    except:
+        top_p = "-"
     k3.metric("Top Plataforma", top_p)
-    prom = int(df_filtered['paquetes'].mean())
+    
+    prom = int(df_filtered['paquetes'].mean()) if not df_filtered.empty else 0
     k4.metric("Promedio", prom)
     
     st.divider()
@@ -223,33 +260,27 @@ def modal_admin():
     
     col_a, col_b = st.columns(2)
     with col_a:
-        u_sel = st.selectbox("ID Usuario", users['id'].tolist())
+        if not users.empty:
+            u_sel = st.selectbox("ID Usuario", users['id'].tolist())
     with col_b:
-        estado_actual = users[users['id']==u_sel]['activo'].values[0] if not users.empty else 0
-        btn_txt = "Desactivar" if estado_actual else "Activar"
-        if st.button(btn_txt):
-            admin_toggle_usuario(u_sel, estado_actual)
-            st.rerun()
+        if not users.empty:
+            estado_actual = users[users['id']==u_sel]['activo'].values[0]
+            btn_txt = "Desactivar" if estado_actual else "Activar"
+            if st.button(btn_txt):
+                admin_toggle_usuario(u_sel, estado_actual)
+                st.rerun()
 
-# --- 7. LÓGICA PRINCIPAL (LOGIN MODIFICADO) ---
+# --- 7. LÓGICA PRINCIPAL ---
 
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 
 if not st.session_state['logged_in']:
-    # --- PANTALLA DE LOGIN LIMPIA ---
-    # Usamos columnas para centrar los inputs en la pantalla
     c_izq, c_centro, c_der = st.columns([1, 1, 1])
-    
     with c_centro:
-        # Espacio en blanco vertical para que no quede pegado arriba
         st.markdown("<br><br><br><br>", unsafe_allow_html=True)
-        
-        # INPUTS DIRECTOS (Sin recuadros, sin titulos)
         u = st.text_input("Usuario")
         p = st.text_input("Contraseña", type="password")
-        
-        # Espacio pequeño
         st.markdown("<br>", unsafe_allow_html=True)
         
         if st.button("INICIAR", type="primary", use_container_width=True):
@@ -262,11 +293,7 @@ if not st.session_state['logged_in']:
                 st.error("Datos incorrectos")
 
 else:
-    # --- APLICACIÓN PRINCIPAL (DASHBOARD) ---
-    
-    # Encabezado
     col_logo, col_actions, col_user = st.columns([2, 4, 1.5], gap="small")
-    
     with col_logo:
         st.markdown("### 📦 Control Logístico")
     
@@ -277,6 +304,7 @@ else:
                 modal_registro(None)
         with c_btn2:
             if st.button("📊 VER DASHBOARDS", use_container_width=True):
+                # Cargamos datos aquí para asegurar que estén frescos
                 df_dash = cargar_datos_logistica()
                 modal_dashboard(df_dash)
 
@@ -292,11 +320,10 @@ else:
 
     st.markdown("---")
 
-    # Calendario
     df = cargar_datos_logistica()
     
     events = []
-    if not df.empty:
+    if not df.empty and 'fecha_str' in df.columns:
         for _, row in df.iterrows():
             color = "#6c757d"
             if row['plataforma_cliente'] == "AliExpress": color = "#f97316"
