@@ -1,9 +1,11 @@
 import streamlit as st
 import pandas as pd
 import mysql.connector
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from streamlit_calendar import calendar
 import plotly.express as px
+import plotly.graph_objects as go
+import io
 
 # --- 1. CONFIGURACIÓN INICIAL ---
 st.set_page_config(
@@ -17,139 +19,120 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_info' not in st.session_state: st.session_state['user_info'] = None
 if 'current_view' not in st.session_state: st.session_state['current_view'] = "calendar"
 
-# --- 2. CSS "NUCLEAR" PARA FORZAR LA BARRA ---
+# --- 2. CSS AVANZADO (DISEÑO LIGHT & ULTRA SLIM) ---
 
-# Variables de diseño
-SIDEBAR_WIDTH = "75px"  # Ancho fijo
+# Ancho reducido al 50% funcional (menos de 50px afecta la usabilidad)
+SIDEBAR_WIDTH = "55px"
 
 base_css = """
 <style>
-    /* Ocultar menú nativo y elementos extra */
+    /* Limpieza General */
     [data-testid="stSidebarNav"] { display: none !important; }
     [data-testid="stToolbar"] { visibility: hidden !important; }
     [data-testid="stDecoration"] { display: none !important; }
     [data-testid="stHeader"] { visibility: hidden !important; }
     footer { display: none !important; }
     
-    .stApp { background-color: #f1f5f9; font-family: 'Segoe UI', sans-serif; }
+    /* Fondo de la App (Gris muy suave para contraste con barra blanca) */
+    .stApp { background-color: #f8fafc; font-family: 'Segoe UI', sans-serif; }
 </style>
 """
 
 login_css = """
 <style>
-    /* En el login SÍ ocultamos la barra totalmente */
     section[data-testid="stSidebar"] { display: none !important; }
-    
-    .main .block-container {
-        max-width: 400px; padding-top: 15vh; margin: 0 auto;
-    }
+    .main .block-container { max-width: 400px; padding-top: 15vh; margin: 0 auto; }
     div[data-testid="stTextInput"] input {
-        border: 1px solid #cbd5e1; padding: 12px; border-radius: 8px;
+        border: 1px solid #e2e8f0; padding: 12px; border-radius: 10px; background: white; color: #334155;
     }
     div.stButton > button { 
-        width: 100%; border-radius: 8px; padding: 12px;
-        background: #2563eb; color: white; border: none; font-weight: bold;
+        width: 100%; border-radius: 10px; padding: 12px; font-weight: 600;
+        background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; color: white;
     }
 </style>
 """
 
 dashboard_css = f"""
 <style>
-    /* --- 1. BARRA LATERAL INDESTRUCTIBLE --- */
+    /* --- 1. BARRA LATERAL BLANCA & SLIM --- */
     
-    /* Eliminar botón de cerrar (La flecha X o >) */
     [data-testid="collapsedControl"] {{ display: none !important; }}
     
-    /* FORZAR APERTURA: Esto ignora si el usuario la cerró antes */
     section[data-testid="stSidebar"] {{
         display: block !important;
-        visibility: visible !important;
-        transform: none !important; /* <--- ESTA LÍNEA ES CLAVE: ANULA EL OCULTAMIENTO */
         width: {SIDEBAR_WIDTH} !important;
         min-width: {SIDEBAR_WIDTH} !important;
         max-width: {SIDEBAR_WIDTH} !important;
-        
-        /* Posición fija en pantalla */
+        transform: none !important; /* Bloqueo de ocultamiento */
+        visibility: visible !important;
         position: fixed !important;
         top: 0 !important; left: 0 !important; bottom: 0 !important;
         z-index: 99999;
         
-        /* Estilo Visual Dark & Glass */
-        background: #0f172a !important; 
-        border-right: 1px solid #334155;
-        padding-top: 20px;
+        /* DISEÑO LIGHT (Blanco con sombra suave) */
+        background-color: #ffffff !important;
+        border-right: 1px solid #f1f5f9;
+        box-shadow: 4px 0 20px rgba(0,0,0,0.03);
+        padding-top: 15px;
     }}
     
-    /* Contenedor interno de la barra */
     section[data-testid="stSidebar"] > div {{
+        overflow: hidden !important;
         width: 100% !important;
-        overflow: hidden !important; /* Sin scrollbars */
-        display: flex;
-        flex-direction: column;
-        align-items: center;
+        display: flex; flex-direction: column; align-items: center;
     }}
 
-    /* --- 2. CONTENIDO PRINCIPAL --- */
-    /* Margen izquierdo para no quedar debajo de la barra */
+    /* --- 2. CONTENIDO PRINCIPAL (Ajuste Perfecto) --- */
     .main .block-container {{
         margin-left: {SIDEBAR_WIDTH} !important;
         width: calc(100% - {SIDEBAR_WIDTH}) !important;
-        padding-top: 2rem !important;
-        padding-left: 2rem !important;
-        padding-right: 2rem !important;
+        padding: 2rem !important;
         max-width: 100% !important;
     }}
 
-    /* --- 3. DISEÑO DE BOTONES DE MENÚ --- */
-    
-    /* Ocultar radio buttons nativos */
+    /* --- 3. BOTONES DE MENÚ (Light Theme) --- */
     [data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {{ display: none !important; }}
     
-    /* Botón Icono */
     [data-testid="stSidebar"] div[role="radiogroup"] label {{
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-        width: 45px !important;
-        height: 45px !important;
-        border-radius: 10px !important;
-        margin-bottom: 25px !important;
-        cursor: pointer;
+        display: flex !important; justify-content: center !important; align-items: center !important;
+        width: 40px !important; height: 40px !important; /* Más pequeño */
+        border-radius: 10px !important; margin-bottom: 20px !important; cursor: pointer;
         
-        /* Colores */
+        /* Colores Inactivos (Gris oscuro sobre blanco) */
         background: transparent;
-        color: #94a3b8; /* Gris azulado */
-        font-size: 24px !important;
+        color: #64748b; 
+        font-size: 20px !important;
         border: 1px solid transparent;
         transition: all 0.2s;
     }}
     
-    /* Hover */
     [data-testid="stSidebar"] div[role="radiogroup"] label:hover {{
-        background: rgba(255,255,255,0.1);
-        color: white;
+        background: #f1f5f9; color: #0f172a;
     }}
     
-    /* Activo */
+    /* Activo (Azul corporativo) */
     [data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"] {{
-        background: #3b82f6;
-        color: white;
-        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.5);
+        background: #eff6ff; /* Azul muy claro de fondo */
+        color: #2563eb; /* Azul fuerte de icono */
+        border: 1px solid #dbeafe;
+        box-shadow: 0 2px 5px rgba(37, 99, 235, 0.1);
     }}
 
-    /* Estilos extra */
+    /* Avatar Container */
     .avatar-box {{
-        width: 45px; height: 45px; background: rgba(255,255,255,0.05);
+        width: 38px; height: 38px; background: #f8fafc;
         border-radius: 50%; display: flex; align-items: center; justify-content: center;
-        margin-bottom: 30px; border: 2px solid #3b82f6; font-size: 20px;
+        margin-bottom: 25px; border: 2px solid #e2e8f0; font-size: 18px;
+        color: #334155;
     }}
     
+    /* KPI Cards Premium */
     .kpi-card {{
         background: white; padding: 20px; border-radius: 12px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-left: 4px solid #3b82f6;
+        border: 1px solid #e2e8f0; box-shadow: 0 2px 10px rgba(0,0,0,0.02);
     }}
-    .kpi-val {{ font-size: 1.8rem; font-weight: bold; color: #0f172a; }}
-    .kpi-lbl {{ color: #64748b; font-size: 0.85rem; text-transform: uppercase; }}
+    .kpi-lbl {{ color: #64748b; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }}
+    .kpi-val {{ color: #0f172a; font-size: 1.6rem; font-weight: 800; margin-top: 5px; }}
 </style>
 """
 
@@ -226,15 +209,15 @@ def guardar_registro(id_reg, fecha, prov, plat, serv, mast, paq, com):
             user = st.session_state['user_info']['username']
             if id_reg is None:
                 cur.execute("INSERT INTO registro_logistica (fecha, proveedor_logistico, plataforma_cliente, tipo_servicio, master_lote, paquetes, comentarios, created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)", (fecha, prov, plat, serv, mast, paq, com, user))
-                st.toast("Guardado")
+                st.toast("Guardado Exitosamente")
             else:
                 cur.execute("UPDATE registro_logistica SET fecha=%s, proveedor_logistico=%s, plataforma_cliente=%s, tipo_servicio=%s, master_lote=%s, paquetes=%s, comentarios=%s WHERE id=%s", (fecha, prov, plat, serv, mast, paq, com, id_reg))
-                st.toast("Actualizado")
+                st.toast("Registro Actualizado")
             conn.commit(); conn.close()
         except Exception as e: st.error(str(e))
 
 def admin_crear_usuario(u, r):
-    conn = get_connection()
+    conn = get_connection(); 
     if conn:
         try:
             conn.cursor().execute("INSERT INTO usuarios (username, password, rol, avatar) VALUES (%s, '123456', %s, 'avatar_1')", (u, r))
@@ -242,7 +225,7 @@ def admin_crear_usuario(u, r):
         except: pass; return False
 
 def admin_get_users():
-    conn = get_connection()
+    conn = get_connection(); 
     return pd.read_sql("SELECT id, username, rol, activo FROM usuarios", conn) if conn else pd.DataFrame()
 
 def admin_toggle(uid, curr):
@@ -287,7 +270,7 @@ def modal_registro(datos=None):
             pain = st.number_input("Paquetes", 0, value=int(d_paq), disabled=disabled)
         com = st.text_area("Notas", d_com, disabled=disabled)
         if not disabled:
-            if st.form_submit_button("Guardar", type="primary", use_container_width=True):
+            if st.form_submit_button("Guardar Registro", type="primary", use_container_width=True):
                 guardar_registro(d_id, fin, pin, clin, sin, min_, pain, com)
                 st.rerun()
 
@@ -298,69 +281,52 @@ def modal_registro(datos=None):
 if not st.session_state['logged_in']:
     # --- LOGIN ---
     st.markdown("<div style='height: 50px'></div>", unsafe_allow_html=True)
-    st.markdown("<h2 style='text-align: center; color: #1e293b; margin-bottom: 10px;'>Nexus Logística</h2>", unsafe_allow_html=True)
-    
+    st.markdown("<h2 style='text-align: center; color: #1e293b;'>Nexus Logística</h2>", unsafe_allow_html=True)
     u = st.text_input("Usuario", placeholder="Usuario", label_visibility="collapsed")
     st.write("")
     p = st.text_input("Contraseña", type="password", placeholder="Contraseña", label_visibility="collapsed")
     st.write("")
-    
-    if st.button("INICIAR SESIÓN"):
+    if st.button("ACCEDER"):
         user = verificar_login(u, p)
         if user:
             st.session_state['logged_in'] = True
             st.session_state['user_info'] = user
             st.rerun()
-        else: st.error("Datos incorrectos")
-        
+        else: st.error("Credenciales inválidas")
     st.markdown("<br>", unsafe_allow_html=True)
-    with st.expander("¿Olvidaste tu contraseña?"):
-        ur = st.text_input("Usuario para restablecer")
-        if st.button("Solicitar"):
+    with st.expander("Recuperar acceso"):
+        ur = st.text_input("Usuario")
+        if st.button("Enviar"):
             r = solicitar_reset_pass(ur)
-            if r=="ok": st.success("Enviado.")
-            elif r=="pendiente": st.info("Pendiente.")
-            else: st.warning("No existe.")
+            if r=="ok": st.success("Solicitud enviada.")
+            elif r=="pendiente": st.info("Ya está pendiente.")
+            else: st.warning("Usuario no existe.")
 
 else:
-    # --- APP COMPLETA ---
     u_info = st.session_state['user_info']
     rol = u_info['rol']
     
-    # --- BARRA LATERAL (Indestructible) ---
+    # --- BARRA LATERAL LIGHT (55px) ---
     with st.sidebar:
-        # Avatar
         av = AVATARS.get(u_info.get('avatar'), '👤')
-        st.markdown(f"""
-            <div style="display:flex; justify-content:center;">
-                <div class="avatar-box" title="{u_info['username']}">{av}</div>
-            </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"<div style='display:flex; justify-content:center;'><div class='avatar-box' title='{u_info['username']}'>{av}</div></div>", unsafe_allow_html=True)
         
-        # MENÚ ICONOS
-        # 📅 Calendario | 📊 Dashboard (Integrado) | 👥 Admin | 🔑 Claves
-        opciones = ["📅", "📊"]
+        # MENÚ: 📅 (Cal) | 📈 (Analytics Pro) | 👥 (User) | 🔑 (Key)
+        opciones = ["📅", "📈"]
         if rol == 'admin':
             opciones.extend(["👥", "🔑"])
-            
+        
         seleccion = st.radio("Menu", opciones, label_visibility="collapsed")
         
-        # Mapeo de Vistas
-        vistas = {
-            "📅": "calendar",
-            "📊": "dashboard_inteligencia",
-            "👥": "admin_users",
-            "🔑": "admin_reqs"
-        }
-        st.session_state['current_view'] = vistas.get(seleccion, "calendar")
+        mapa = {"📅": "calendar", "📈": "analytics_pro", "👥": "admin_users", "🔑": "admin_reqs"}
+        st.session_state['current_view'] = mapa.get(seleccion, "calendar")
 
-        # Botón Salir
         st.markdown("<div style='flex-grow:1; margin-top:50px;'></div>", unsafe_allow_html=True)
-        if st.button("🚪", help="Cerrar Sesión"):
+        if st.button("🚪", help="Salir"):
             st.session_state['logged_in'] = False
             st.rerun()
 
-    # --- CONTENIDO CENTRAL ---
+    # --- CONTENIDO ---
     vista = st.session_state['current_view']
     df = cargar_datos()
 
@@ -386,42 +352,111 @@ else:
         cal = calendar(events=evts, options={"initialView": "dayGridMonth", "height": "750px"}, key="cal_main")
         if cal.get("eventClick"): modal_registro(cal["eventClick"]["event"]["extendedProps"])
 
-    elif vista == "dashboard_inteligencia":
-        st.title("📊 Dashboard de Inteligencia")
+    # --- NUEVA HERRAMIENTA: ANALYTICS PRO ---
+    elif vista == "analytics_pro":
+        st.title("Analytics Pro 360°")
         st.markdown("---")
         
-        if df.empty: st.info("Sin datos suficientes.")
+        if df.empty:
+            st.warning("No hay datos disponibles para analizar.")
         else:
-            k1, k2, k3, k4 = st.columns(4)
-            k1.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>Total Paquetes</div><div class='kpi-val'>{df['paquetes'].sum():,}</div></div>", unsafe_allow_html=True)
-            k2.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>Total Viajes</div><div class='kpi-val'>{len(df)}</div></div>", unsafe_allow_html=True)
-            k3.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>Promedio Carga</div><div class='kpi-val'>{df['paquetes'].mean():.0f}</div></div>", unsafe_allow_html=True)
-            top = df['plataforma_cliente'].mode()[0] if not df.empty else "-"
-            k4.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>Cliente Top</div><div class='kpi-val'>{top}</div></div>", unsafe_allow_html=True)
-            
-            st.divider()
-            
-            c_g1, c_g2 = st.columns([2, 1])
-            with c_g1:
-                st.subheader("Volumen Diario")
-                gf = df.groupby('fecha')['paquetes'].sum().reset_index()
-                fig = px.area(gf, x='fecha', y='paquetes', color_discrete_sequence=['#3b82f6'])
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with c_g2:
-                st.subheader("Share Proveedores")
-                fig2 = px.pie(df, names='proveedor_logistico', values='paquetes', hole=0.5)
-                st.plotly_chart(fig2, use_container_width=True)
+            # 1. BARRA DE CONTROLES (Filtros Inteligentes)
+            with st.expander("🛠️ Panel de Control y Filtros", expanded=True):
+                fc1, fc2, fc3, fc4 = st.columns(4)
+                
+                # Filtro Fechas
+                min_d, max_d = df['fecha'].min().date(), df['fecha'].max().date()
+                rango = fc1.date_input("Rango de Fechas", [min_d, max_d])
+                
+                # Filtros Listas
+                provs = fc2.multiselect("Proveedores", df['proveedor_logistico'].unique())
+                clis = fc3.multiselect("Clientes", df['plataforma_cliente'].unique())
+                servs = fc4.multiselect("Servicios", df['tipo_servicio'].unique())
+                
+                # Aplicar Filtros
+                df_fil = df.copy()
+                if len(rango) == 2:
+                    df_fil = df_fil[(df_fil['fecha'].dt.date >= rango[0]) & (df_fil['fecha'].dt.date <= rango[1])]
+                if provs: df_fil = df_fil[df_fil['proveedor_logistico'].isin(provs)]
+                if clis: df_fil = df_fil[df_fil['plataforma_cliente'].isin(clis)]
+                if servs: df_fil = df_fil[df_fil['tipo_servicio'].isin(servs)]
 
-            st.dataframe(df, use_container_width=True)
+            st.divider()
+
+            # 2. KPIs DINÁMICOS
+            k1, k2, k3, k4 = st.columns(4)
+            total_paq = df_fil['paquetes'].sum()
+            total_viajes = len(df_fil)
+            # Contar masters únicos (ignorando vacíos)
+            masters_unicos = df_fil[df_fil['master_lote'] != '']['master_lote'].nunique()
+            promedio = df_fil['paquetes'].mean() if not df_fil.empty else 0
+
+            k1.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>📦 Total Paquetes</div><div class='kpi-val'>{total_paq:,.0f}</div></div>", unsafe_allow_html=True)
+            k2.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>🚛 Viajes Registrados</div><div class='kpi-val'>{total_viajes}</div></div>", unsafe_allow_html=True)
+            k3.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>🔑 Masters Únicos</div><div class='kpi-val'>{masters_unicos}</div></div>", unsafe_allow_html=True)
+            k4.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>📊 Promedio Carga</div><div class='kpi-val'>{promedio:,.0f}</div></div>", unsafe_allow_html=True)
+
+            st.write("") # Espacio
+
+            # 3. GRÁFICOS AVANZADOS
+            t1, t2, t3 = st.tabs(["📈 Evolución Temporal", "🎯 Distribución & Masters", "📥 Datos Detallados"])
+            
+            with t1:
+                col_g1, col_g2 = st.columns([3, 1])
+                with col_g1:
+                    # Gráfico de Línea con Relleno (Área) por Día
+                    g_time = df_fil.groupby('fecha')['paquetes'].sum().reset_index()
+                    fig_line = px.area(g_time, x='fecha', y='paquetes', title="Volumen de Paquetes (Timeline)", markers=True, color_discrete_sequence=['#3b82f6'])
+                    fig_line.update_layout(xaxis_title="Fecha", yaxis_title="Paquetes", template="plotly_white")
+                    st.plotly_chart(fig_line, use_container_width=True)
+                
+                with col_g2:
+                    # Heatmap Semanal
+                    st.markdown("**Intensidad por Día de la Semana**")
+                    order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                    g_day = df_fil.groupby('DiaSemana')['paquetes'].mean().reindex(order).reset_index()
+                    fig_heat = px.bar(g_day, x='DiaSemana', y='paquetes', color='paquetes', color_continuous_scale="Blues")
+                    fig_heat.update_layout(xaxis_title=None, yaxis_title=None, showlegend=False, template="plotly_white")
+                    st.plotly_chart(fig_heat, use_container_width=True)
+
+            with t2:
+                c_pie, c_bar = st.columns(2)
+                with c_pie:
+                    # Donut Chart Proveedores
+                    fig_pie = px.pie(df_fil, names='proveedor_logistico', values='paquetes', title="Share por Proveedor", hole=0.5, color_discrete_sequence=px.colors.qualitative.Prism)
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                with c_bar:
+                    # Barras Apiladas Clientes vs Servicio
+                    fig_bar = px.bar(df_fil, x='plataforma_cliente', y='paquetes', color='tipo_servicio', title="Cliente vs Tipo Servicio", barmode='group')
+                    st.plotly_chart(fig_bar, use_container_width=True)
+
+            with t3:
+                # 4. TABLA Y EXPORTACIÓN
+                st.subheader("Matriz de Datos")
+                
+                # Selector de columnas para reporte
+                all_cols = df_fil.columns.tolist()
+                sel_cols = st.multiselect("Seleccionar Columnas para Reporte", all_cols, default=['fecha', 'proveedor_logistico', 'plataforma_cliente', 'master_lote', 'paquetes', 'comentarios'])
+                
+                df_export = df_fil[sel_cols]
+                st.dataframe(df_export, use_container_width=True)
+                
+                # Generar CSV en memoria
+                csv = df_export.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Descargar Reporte (CSV)",
+                    data=csv,
+                    file_name=f"Reporte_Nexus_{date.today()}.csv",
+                    mime="text/csv",
+                    type="primary"
+                )
 
     elif vista == "admin_users":
         st.title("Usuarios")
         t1, t2 = st.tabs(["Crear", "Lista"])
         with t1:
             with st.form("new_u"):
-                nu = st.text_input("User")
-                nr = st.selectbox("Rol", ["user", "analista", "admin"])
+                nu = st.text_input("User"); nr = st.selectbox("Rol", ["user", "analista", "admin"])
                 if st.form_submit_button("Crear"):
                     if admin_crear_usuario(nu, nr): st.success("Creado")
         with t2:
