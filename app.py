@@ -6,135 +6,147 @@ from streamlit_calendar import calendar
 import plotly.express as px
 
 # --- 1. CONFIGURACIÓN INICIAL ---
-# Importante: initial_sidebar_state="expanded" para asegurar que cargue abierta antes de bloquearla con CSS
 st.set_page_config(page_title="Nexus Logística", layout="wide", initial_sidebar_state="expanded")
 
 # Inicializar estado
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_info' not in st.session_state: st.session_state['user_info'] = None
 
-# --- 2. GESTIÓN DE CSS (DISEÑO AJUSTADO Y CORREGIDO) ---
+# --- 2. GESTIÓN DE CSS (DISEÑO SLIM / DOCK) ---
+
+# Ancho de la barra lateral (Muy delgado, solo para iconos)
+SIDEBAR_WIDTH = "90px"
 
 base_css = """
 <style>
-    /* Limpieza general de elementos de Streamlit */
+    /* Ocultar elementos del sistema */
     [data-testid="stToolbar"] { visibility: hidden !important; }
     [data-testid="stDecoration"] { display: none !important; }
     [data-testid="stHeader"] { visibility: hidden !important; }
+    .stDeployButton, [data-testid="stStatusWidget"], #MainMenu, footer { display: none !important; }
+    
     .stApp { background-color: #f4f6f9; font-family: 'Segoe UI', sans-serif; }
 </style>
 """
 
-# CSS Login (Sin barra lateral, contenido centrado)
 login_css = """
 <style>
     section[data-testid="stSidebar"] { display: none !important; }
     .main .block-container {
-        max-width: 800px;
-        padding-top: 5rem;
-        margin: 0 auto; /* Centrado automático */
+        max-width: 400px;
+        padding-top: 10vh;
+        margin: 0 auto;
     }
     div[data-testid="stTextInput"] input {
-        border: 1px solid #ddd; padding: 10px; border-radius: 5px;
+        border: 1px solid #ddd; padding: 12px; border-radius: 8px;
     }
-    div.stButton > button { width: 100%; border-radius: 5px; font-weight: 600; }
+    div.stButton > button { width: 100%; border-radius: 8px; font-weight: 600; padding: 10px; }
+    
+    /* Contenedor Login */
+    .login-box {
+        background: white; padding: 40px; border-radius: 15px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.05); text-align: center;
+    }
 </style>
 """
 
-# CSS Dashboard (Barra Fija, Estrecha y Contenido Ajustado)
-dashboard_css = """
+dashboard_css = f"""
 <style>
-    /* --- 1. BARRA LATERAL (SIDEBAR) --- */
+    /* --- 1. BARRA LATERAL LIMPIA (SIN SLIDER NI FLECHA) --- */
     
-    /* Eliminar la flecha y el botón de colapsar (keyboard_double_arrow_left) */
-    [data-testid="collapsedControl"] { 
-        display: none !important; 
-    }
+    /* Ocultar flecha de colapso */
+    [data-testid="collapsedControl"] {{ display: none !important; }}
     
-    /* Configuración de la barra fija */
-    [data-testid="stSidebar"] {
+    /* Configuración del contenedor de la barra */
+    [data-testid="stSidebar"] {{
         display: block !important;
-        width: 220px !important;       /* ANCHO REDUCIDO */
-        min-width: 220px !important;
-        max-width: 220px !important;
-        transform: translateX(0) !important; /* Bloquear posición */
+        width: {SIDEBAR_WIDTH} !important;
+        min-width: {SIDEBAR_WIDTH} !important;
+        max-width: {SIDEBAR_WIDTH} !important;
+        transform: translateX(0) !important;
         visibility: visible !important;
         position: fixed !important;
         top: 0 !important; left: 0 !important; bottom: 0 !important;
         z-index: 99999;
-        background-color: #ffffff;
-        border-right: 1px solid #e5e7eb;
-        padding-top: 1rem; /* Espacio arriba */
-    }
-
-    /* --- 2. CONTENIDO PRINCIPAL (ELIMINAR SUPERPOSICIÓN) --- */
+        background-color: #1e293b; /* Fondo oscuro elegante para iconos */
+        border-right: 1px solid #334155;
+    }}
     
-    /* Empujar el contenido a la derecha para respetar el ancho de la barra */
-    .main .block-container {
-        margin-left: 220px !important;  /* IDÉNTICO AL ANCHO DE LA BARRA */
-        width: calc(100% - 220px) !important; /* El ancho restante */
-        padding-top: 2rem !important;
-        padding-left: 2rem !important;  /* Aire entre la barra y el contenido */
-        padding-right: 2rem !important;
+    /* Ocultar SLIDER (Barra de desplazamiento) */
+    [data-testid="stSidebar"] > div {{
+        overflow: hidden !important; /* Adiós scrollbar */
+        padding-top: 20px;
+        display: flex;
+        flex-direction: column;
+        align-items: center; /* Centrar todo horizontalmente */
+    }}
+
+    /* --- 2. CONTENIDO PRINCIPAL --- */
+    .main .block-container {{
+        margin-left: {SIDEBAR_WIDTH} !important; 
+        width: calc(100% - {SIDEBAR_WIDTH}) !important;
+        padding: 2rem 3rem !important;
         max-width: 100% !important;
-    }
+    }}
 
-    /* --- 3. ESTILOS DEL MENÚ Y PERFIL (MEJOR DISTRIBUCIÓN) --- */
+    /* --- 3. BOTONES DE NAVEGACIÓN (SOLO ICONOS) --- */
     
-    /* Ocultar círculos de los radio buttons */
-    [data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {
+    /* Ocultar círculos de radio */
+    [data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {{
         display: none !important;
-    }
+    }}
     
-    /* Botones del menú más grandes y espaciados */
-    [data-testid="stSidebar"] div[role="radiogroup"] label {
-        padding: 12px 20px !important; /* Más relleno interno */
-        margin-bottom: 8px !important; /* Separación entre botones */
-        border-radius: 6px !important;
-        border: 1px solid transparent;
-        transition: all 0.2s ease;
+    /* Estilo del Botón Icono */
+    [data-testid="stSidebar"] div[role="radiogroup"] label {{
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        width: 50px !important;
+        height: 50px !important;
+        border-radius: 12px !important;
+        margin-bottom: 15px !important;
+        transition: all 0.3s ease;
         cursor: pointer;
-        color: #64748b;
-        font-size: 15px !important;
-    }
+        background-color: transparent;
+        color: #94a3b8; /* Gris claro */
+        font-size: 24px !important; /* Emoji grande */
+        border: 1px solid transparent;
+        padding: 0 !important;
+    }}
     
     /* Hover */
-    [data-testid="stSidebar"] div[role="radiogroup"] label:hover {
-        background-color: #f8fafc;
-        color: #1e293b;
-    }
+    [data-testid="stSidebar"] div[role="radiogroup"] label:hover {{
+        background-color: #334155;
+        color: white;
+        transform: scale(1.1);
+    }}
     
-    /* Botón Activo */
-    [data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"] {
-        background-color: #eff6ff;
-        color: #2563eb;
-        font-weight: 600;
-        border-left: 4px solid #2563eb;
-    }
+    /* Activo */
+    [data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"] {{
+        background-color: #3b82f6; /* Azul brillante */
+        color: white;
+        box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+    }}
 
-    /* Tarjeta de Perfil Compacta */
-    .profile-card {
-        background-color: #f1f5f9; 
-        padding: 15px; 
-        border-radius: 8px;
-        text-align: center; 
-        margin-bottom: 30px; /* Separación con el menú */
-    }
-    .profile-avatar { font-size: 2.2rem; margin-bottom: 5px; }
-    .profile-name { font-weight: 700; color: #334155; font-size: 0.9rem; }
-    .profile-role { color: #94a3b8; font-size: 0.75rem; text-transform: uppercase; font-weight: 600; }
-
-    /* Tarjetas KPI */
-    .kpi-card {
-        background: white; padding: 15px; border-radius: 8px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05); border-left: 4px solid #3b82f6;
-    }
-    .kpi-val { font-size: 1.5rem; font-weight: bold; color: #0f172a; }
-    .kpi-lbl { color: #64748b; font-size: 0.85rem; }
+    /* Perfil solo Avatar */
+    .profile-mini {{
+        font-size: 2.5rem;
+        text-align: center;
+        margin-bottom: 30px;
+        cursor: help; /* Muestra tooltip nativo si se posa el mouse */
+    }}
+    
+    /* KPI Cards */
+    .kpi-card {{
+        background: white; padding: 20px; border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.02); border-left: 5px solid #3b82f6;
+    }}
+    .kpi-val {{ font-size: 1.8rem; font-weight: 800; color: #0f172a; }}
+    .kpi-lbl {{ color: #64748b; font-size: 0.9rem; font-weight: 600; text-transform: uppercase; }}
 </style>
 """
 
-# Aplicar CSS según estado
+# Aplicar CSS
 st.markdown(base_css, unsafe_allow_html=True)
 if st.session_state['logged_in']:
     st.markdown(dashboard_css, unsafe_allow_html=True)
@@ -143,7 +155,14 @@ else:
 
 
 # --- 3. CONEXIÓN Y DATOS ---
-# (Mismos datos de ejemplo para que funcione standalone)
+# Mapeo de navegación: Emoji -> Vista
+NAV_MAP = {
+    "📅": "calendar",
+    "📊": "dashboard",
+    "👥": "admin_users",
+    "🔑": "admin_reqs"
+}
+
 AVATARS = {"avatar_1": "👨‍💼", "avatar_2": "👩‍💼", "avatar_3": "👷‍♂️", "avatar_4": "👩‍💻"} 
 PROVEEDORES = ["Mail Americas", "APG", "IMILE", "GLC"]
 PLATAFORMAS = ["AliExpress", "Shein", "Temu"]
@@ -159,7 +178,7 @@ def get_connection():
         )
     except: return None
 
-# --- 4. FUNCIONES LÓGICAS ---
+# --- 4. LÓGICA DE NEGOCIO ---
 def verificar_login(u, p):
     conn = get_connection()
     if not conn: return None
@@ -168,6 +187,21 @@ def verificar_login(u, p):
         cur.execute("SELECT * FROM usuarios WHERE username=%s AND password=%s AND activo=1", (u, p))
         res = cur.fetchone(); conn.close(); return res
     except: return None
+
+def solicitar_reset_pass(username):
+    conn = get_connection()
+    if not conn: return "error"
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM usuarios WHERE username=%s", (username,))
+        if cur.fetchone():
+            cur.execute("SELECT id FROM password_requests WHERE username=%s AND status='pendiente'", (username,))
+            if not cur.fetchone():
+                cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,))
+                conn.commit(); conn.close(); return "ok"
+            conn.close(); return "pendiente"
+        conn.close(); return "no_user"
+    except: return "error"
 
 def cargar_datos():
     conn = get_connection()
@@ -219,15 +253,21 @@ def admin_toggle(uid, curr):
         conn.cursor().execute("UPDATE usuarios SET activo=%s WHERE id=%s", (0 if curr==1 else 1, uid))
         conn.commit(); conn.close()
 
+def admin_restablecer_password(rid, uname):
+    conn = get_connection()
+    if conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (uname,))
+        cur.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (rid,))
+        conn.commit(); conn.close()
+
 # --- 5. MODAL ---
 @st.dialog("Gestión de Carga")
 def modal_registro(datos=None):
     rol = st.session_state['user_info']['rol']
     disabled = (rol == 'analista')
-    
     d_fecha, d_prov, d_plat = date.today(), PROVEEDORES[0], PLATAFORMAS[0]
     d_serv, d_mast, d_paq, d_com, d_id = SERVICIOS[0], "", 0, "", None
-
     if datos:
         d_id = datos.get('id')
         if datos.get('fecha_str'): d_fecha = datetime.strptime(datos['fecha_str'], '%Y-%m-%d').date()
@@ -237,7 +277,6 @@ def modal_registro(datos=None):
         d_mast = datos.get('master', "")
         d_paq = datos.get('paquetes', 0)
         d_com = datos.get('comentarios', "")
-
     with st.form("frm"):
         c1, c2 = st.columns(2)
         with c1:
@@ -249,67 +288,82 @@ def modal_registro(datos=None):
             min_ = st.text_input("Master", d_mast, disabled=disabled)
             pain = st.number_input("Paquetes", 0, value=int(d_paq), disabled=disabled)
         com = st.text_area("Notas", d_com, disabled=disabled)
-        
         if not disabled:
             if st.form_submit_button("Guardar", type="primary", use_container_width=True):
                 guardar_registro(d_id, fin, pin, clin, sin, min_, pain, com)
                 st.rerun()
 
 # ==============================================================================
-#  INTERFAZ PRINCIPAL
+#  INTERFAZ
 # ==============================================================================
 
 if not st.session_state['logged_in']:
-    # --- LOGIN ---
-    col1, col2, col3 = st.columns([1, 1.5, 1])
-    with col2:
-        st.markdown("<h2 style='text-align:center; color:#333; margin-bottom: 20px;'>Nexus Logística</h2>", unsafe_allow_html=True)
-        u = st.text_input("Usuario", placeholder="Usuario")
-        p = st.text_input("Contraseña", type="password", placeholder="Contraseña")
-        st.write("")
-        if st.button("INICIAR SESIÓN", type="primary"):
-            user = verificar_login(u, p)
-            if user:
-                st.session_state['logged_in'] = True
-                st.session_state['user_info'] = user
-                st.rerun()
-            else: st.error("Acceso denegado")
+    # --- LOGIN RESTAURADO ---
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # Contenedor visual blanco
+    st.markdown("""
+        <div class="login-box">
+            <h2 style="color:#333; margin-bottom:10px;">Nexus Logística</h2>
+            <p style="color:#888; margin-bottom:30px;">Panel de Control</p>
+        </div>
+    """, unsafe_allow_html=True)
+
+    u = st.text_input("Usuario", placeholder="Ingresa tu usuario", label_visibility="collapsed")
+    p = st.text_input("Contraseña", type="password", placeholder="••••••••", label_visibility="collapsed")
+    
+    st.write("")
+    if st.button("INICIAR SESIÓN", type="primary"):
+        user = verificar_login(u, p)
+        if user:
+            st.session_state['logged_in'] = True
+            st.session_state['user_info'] = user
+            st.rerun()
+        else: st.error("Acceso denegado")
+        
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    # SECCIÓN RESTAURADA DE RECUPERACIÓN
+    with st.expander("¿Olvidaste tu contraseña?"):
+        st.caption("Solicita un restablecimiento al administrador.")
+        ur = st.text_input("Usuario a recuperar")
+        if st.button("Enviar Solicitud"):
+            r = solicitar_reset_pass(ur)
+            if r=="ok": st.success("Solicitud enviada.")
+            elif r=="pendiente": st.info("Ya está pendiente.")
+            else: st.warning("Usuario no existe.")
 
 else:
-    # --- DASHBOARD ---
     u_info = st.session_state['user_info']
     rol = u_info['rol']
     
-    # 1. BARRA LATERAL (FIXED & ESTRECHA)
+    # --- BARRA LATERAL SOLO ICONOS (90px) ---
     with st.sidebar:
-        # Perfil Visualmente Atractivo
+        # Avatar (Solo icono)
         av = AVATARS.get(u_info.get('avatar'), '👤')
-        st.markdown(f"""
-            <div class='profile-card'>
-                <div class='profile-avatar'>{av}</div>
-                <div class='profile-name'>{u_info['username']}</div>
-                <div class='profile-role'>{rol}</div>
-            </div>
-        """, unsafe_allow_html=True)
+        # Usamos title HTML native para tooltip al pasar el mouse
+        st.markdown(f"<div class='profile-mini' title='{u_info['username']} ({rol})'>{av}</div>", unsafe_allow_html=True)
         
-        # MENÚ UNIFICADO
-        opciones_menu = ["📅 Calendario", "📊 Reportes"]
+        # MENÚ DE SOLO ICONOS
+        # Definimos las opciones visuales (Solo emojis)
+        opts = ["📅", "📊"]
         if rol == 'admin':
-            opciones_menu.extend(["👥 Admin Usuarios", "🔑 Admin Claves"])
+            opts.extend(["👥", "🔑"])
+            
+        seleccion_emoji = st.radio("Nav", opts, label_visibility="collapsed")
         
-        # Radio buttons estilizados como botones
-        seleccion = st.radio("Menú", opciones_menu, label_visibility="collapsed")
-        
-        # Espacio flexible y botón de salir
-        st.markdown("---")
-        if st.button("Cerrar Sesión"):
+        # Logout al fondo (Icono de puerta)
+        st.markdown("<div style='flex-grow:1'></div>", unsafe_allow_html=True) # Espaciador
+        if st.button("🚪", help="Cerrar Sesión"):
             st.session_state['logged_in'] = False
             st.rerun()
 
-    # 2. CONTENIDO PRINCIPAL (LADO DERECHO)
+    # --- CONTENIDO PRINCIPAL ---
+    # Traducimos el emoji seleccionado a la vista lógica
+    vista = NAV_MAP.get(seleccion_emoji, "calendar")
     df = cargar_datos()
     
-    if seleccion == "📅 Calendario":
+    if vista == "calendar":
         c1, c2 = st.columns([6, 1])
         c1.title("Calendario Operativo")
         if rol != 'analista':
@@ -321,7 +375,6 @@ else:
                 color = "#3b82f6" 
                 if "AliExpress" in r['plataforma_cliente']: color = "#f97316"
                 elif "Temu" in r['plataforma_cliente']: color = "#10b981"
-                
                 props = {
                     "id": int(r['id']), "fecha_str": str(r['fecha_str']),
                     "proveedor": str(r['proveedor_logistico']), "plataforma": str(r['plataforma_cliente']),
@@ -329,53 +382,54 @@ else:
                     "paquetes": int(r['paquetes']), "comentarios": str(r['comentarios'])
                 }
                 evts.append({
-                    "title": f"{int(r['paquetes'])} - {r['proveedor_logistico']}", 
+                    "title": f"{int(r['paquetes'])}", 
                     "start": r['fecha_str'], 
-                    "backgroundColor": color, 
-                    "borderColor": color, 
-                    "extendedProps": props
+                    "backgroundColor": color, "borderColor": color, "extendedProps": props
                 })
-        
-        cal = calendar(events=evts, options={"initialView": "dayGridMonth", "height": "700px"}, key="calendar_view")
+        cal = calendar(events=evts, options={"initialView": "dayGridMonth", "height": "750px"}, key="calendar_view")
         if cal.get("eventClick"): modal_registro(cal["eventClick"]["event"]["extendedProps"])
 
-    elif seleccion == "📊 Reportes":
-        st.title("Reportes y Estadísticas")
-        if df.empty: st.info("No hay datos.")
+    elif vista == "dashboard":
+        st.title("Reportes")
+        if df.empty: st.info("Sin datos.")
         else:
             k1, k2, k3 = st.columns(3)
-            k1.markdown(f"<div class='kpi-card'><div class='kpi-val'>{df['paquetes'].sum():,}</div><div class='kpi-lbl'>Paquetes Totales</div></div>", unsafe_allow_html=True)
-            k2.markdown(f"<div class='kpi-card'><div class='kpi-val'>{len(df)}</div><div class='kpi-lbl'>Entradas Registradas</div></div>", unsafe_allow_html=True)
-            k3.markdown(f"<div class='kpi-card'><div class='kpi-val'>{df['paquetes'].mean():.0f}</div><div class='kpi-lbl'>Promedio por Carga</div></div>", unsafe_allow_html=True)
-            
+            k1.markdown(f"<div class='kpi-card'><div class='kpi-val'>{df['paquetes'].sum():,}</div><div class='kpi-lbl'>Total</div></div>", unsafe_allow_html=True)
+            k2.markdown(f"<div class='kpi-card'><div class='kpi-val'>{len(df)}</div><div class='kpi-lbl'>Viajes</div></div>", unsafe_allow_html=True)
+            k3.markdown(f"<div class='kpi-card'><div class='kpi-val'>{df['paquetes'].mean():.0f}</div><div class='kpi-lbl'>Promedio</div></div>", unsafe_allow_html=True)
             st.divider()
-            t1, t2 = st.tabs(["Gráficos", "Tabla de Datos"])
+            t1, t2 = st.tabs(["Gráficos", "Tabla"])
             with t1:
-                g = df.groupby('fecha')['paquetes'].sum().reset_index()
-                st.plotly_chart(px.line(g, x='fecha', y='paquetes', title="Tendencia de Volumen"), use_container_width=True)
-            with t2:
-                st.dataframe(df, use_container_width=True)
+                st.plotly_chart(px.line(df.groupby('fecha')['paquetes'].sum().reset_index(), x='fecha', y='paquetes'), use_container_width=True)
+            with t2: st.dataframe(df, use_container_width=True)
 
-    elif seleccion == "👥 Admin Usuarios":
-        st.title("Gestión de Usuarios")
-        t_new, t_list = st.tabs(["Crear Usuario", "Lista Existente"])
+    elif vista == "admin_users":
+        st.title("Usuarios")
+        t_new, t_list = st.tabs(["Crear", "Lista"])
         with t_new:
             with st.form("f_new_u"):
                 nu = st.text_input("Usuario")
                 nr = st.selectbox("Rol", ["user", "analista", "admin"])
                 if st.form_submit_button("Crear"):
-                    if admin_crear_usuario(nu, nr): st.success("Creado correctamente")
-                    else: st.error("Error al crear")
+                    if admin_crear_usuario(nu, nr): st.success("Ok")
         with t_list:
             df_u = admin_get_users()
             st.dataframe(df_u, use_container_width=True)
             c1, c2 = st.columns(2)
-            uid = c1.selectbox("ID Usuario", df_u['id'].tolist() if not df_u.empty else [])
+            uid = c1.selectbox("ID", df_u['id'].tolist() if not df_u.empty else [])
             if uid:
                 curr = df_u[df_u['id']==uid]['activo'].values[0]
-                btn_txt = "Desactivar" if curr == 1 else "Activar"
-                if c2.button(btn_txt): admin_toggle(uid, curr); st.rerun()
+                if c2.button("Toggle Estado"): admin_toggle(uid, curr); st.rerun()
 
-    elif seleccion == "🔑 Admin Claves":
-        st.title("Solicitudes de Contraseña")
-        st.info("Módulo de claves activo.")
+    elif vista == "admin_reqs":
+        st.title("Claves Pendientes")
+        try:
+            reqs = pd.read_sql("SELECT * FROM password_requests WHERE status='pendiente'", get_connection())
+            if reqs.empty: st.info("Nada pendiente.")
+            else:
+                for _, r in reqs.iterrows():
+                    c1, c2 = st.columns([3,1])
+                    c1.write(f"User: {r['username']}")
+                    if c2.button("Reset (123456)", key=r['id']):
+                        admin_restablecer_password(r['id'], r['username']); st.rerun()
+        except: st.error("Error BD")
