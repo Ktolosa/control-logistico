@@ -5,132 +5,67 @@ from datetime import date, datetime
 from streamlit_calendar import calendar
 import plotly.express as px
 import plotly.graph_objects as go
+import time
 
-# --- 1. CONFIGURACIÓN INICIAL ---
-st.set_page_config(page_title="Nexus Logística", layout="wide", initial_sidebar_state="collapsed")
+# --- 1. CONFIGURACIÓN ---
+st.set_page_config(page_title="Nexus Logística", layout="wide", initial_sidebar_state="expanded")
 
-# --- 2. GESTIÓN DE ESTADO ---
-if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
-if 'user_info' not in st.session_state: st.session_state['user_info'] = None
-# La navegación ahora se controla por una variable de estado simple
-if 'current_page' not in st.session_state: st.session_state['current_page'] = "login" 
-
-# --- 3. ESTILOS CSS AVANZADOS (MAC DOCK + TOP PROFILE) ---
+# --- 2. ESTILOS CSS (DISEÑO PROFESIONAL) ---
 st.markdown("""
     <style>
-    /* 1. OCULTAR ELEMENTOS NATIVOS DE STREAMLIT */
-    [data-testid="stSidebar"] { display: none; }
-    [data-testid="stToolbar"] { display: none; }
-    [data-testid="stHeader"] { background: transparent; }
+    /* OCULTAR ELEMENTOS NATIVOS MOLESTOS */
+    [data-testid="stToolbar"] { visibility: hidden; }
     [data-testid="stDecoration"] { display: none; }
+    [data-testid="stHeader"] { background: transparent; }
     
-    /* Fondo General */
-    .stApp { background-color: #f0f2f5; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
+    /* FONDO GENERAL */
+    .stApp { background-color: #f4f6f9; font-family: 'Segoe UI', sans-serif; }
     
-    /* 2. PANEL DE USUARIO (TOP LEFT) */
-    .user-profile-container {
-        position: fixed;
-        top: 20px;
-        left: 20px;
-        z-index: 9999;
-        background: rgba(255, 255, 255, 0.9);
-        backdrop-filter: blur(10px);
-        padding: 10px 20px;
-        border-radius: 15px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-        display: flex;
-        align-items: center;
-        gap: 15px;
-        border: 1px solid rgba(255,255,255,0.5);
-        transition: all 0.3s ease;
-    }
-    .user-profile-container:hover {
-        background: rgba(255, 255, 255, 1);
-        box-shadow: 0 8px 25px rgba(0,0,0,0.15);
-    }
-    .profile-avatar {
-        font-size: 2rem;
-        background: #e2e8f0;
-        border-radius: 50%;
-        width: 45px; height: 45px;
-        display: flex; justify-content: center; align-items: center;
-    }
-    .profile-info { display: flex; flex-direction: column; }
-    .profile-name { font-weight: bold; font-size: 0.95rem; color: #1e293b; }
-    .profile-role { font-size: 0.75rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
-    
-    /* Botones pequeños del perfil */
-    .profile-actions button {
-        border: none; background: transparent; cursor: pointer; font-size: 1.2rem;
-        transition: transform 0.2s; padding: 0 5px;
-    }
-    .profile-actions button:hover { transform: scale(1.2); }
-
-    /* 3. DOCK TIPO MAC OS (BOTTOM CENTER) */
-    .dock-container {
-        position: fixed;
-        bottom: 30px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: rgba(255, 255, 255, 0.25);
-        backdrop-filter: blur(15px);
-        -webkit-backdrop-filter: blur(15px);
-        border: 1px solid rgba(255, 255, 255, 0.3);
-        border-radius: 24px;
-        padding: 10px 20px;
-        display: flex;
-        gap: 15px;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-        z-index: 9999;
-    }
-
-    /* Estilo de los Botones del Dock (Hackeando st.button) */
-    div.stButton > button.dock-btn {
-        background-color: transparent;
-        border: none;
-        font-size: 2rem;
-        padding: 10px;
-        border-radius: 15px;
-        transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-        opacity: 0.6; /* Transparente por defecto */
-        color: #334155;
-        box-shadow: none;
+    /* LOGIN MINIMALISTA (Centrado perfecto sin adornos) */
+    .login-container {
+        margin-top: 15vh;
+        padding: 40px;
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        max-width: 400px;
+        margin-left: auto;
+        margin-right: auto;
     }
     
-    /* Hover Effect: Agrandar y Opacidad Full */
-    div.stButton > button.dock-btn:hover {
-        transform: scale(1.4) translateY(-10px);
-        opacity: 1;
-        background-color: rgba(255,255,255,0.5);
-        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    /* BARRA LATERAL PERSONALIZADA */
+    [data-testid="stSidebar"] {
+        background-color: #ffffff;
+        border-right: 1px solid #e5e7eb;
     }
     
-    /* Active State (Herramienta actual) */
-    div.stButton > button.dock-btn-active {
-        background-color: rgba(255,255,255,0.8) !important;
-        opacity: 1 !important;
-        transform: scale(1.1) !important;
-        border-bottom: 3px solid #3b82f6 !important;
-        color: #0f172a !important;
-        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    /* Tarjeta de Perfil en Sidebar */
+    .profile-card {
+        background-color: #f8fafc;
+        padding: 20px;
+        border-radius: 10px;
+        text-align: center;
+        border: 1px solid #e2e8f0;
+        margin-bottom: 20px;
     }
-
-    /* Ajuste para que el contenido no quede tapado por el Dock */
-    .block-container { padding-bottom: 120px; padding-top: 80px; }
+    .profile-avatar { font-size: 3rem; margin-bottom: 5px; }
+    .profile-name { font-weight: bold; color: #1e293b; font-size: 1.1rem; }
+    .profile-role { color: #64748b; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; }
     
-    /* Login Limpio */
-    .login-box { 
-        background: white; padding: 40px; border-radius: 20px; 
-        box-shadow: 0 20px 50px rgba(0,0,0,0.1); 
-        max-width: 400px; margin: 10vh auto; text-align: center;
+    /* Botones y Métricas */
+    div.stButton > button { border-radius: 6px; font-weight: 600; border: none; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    
+    .kpi-card {
+        background: white; padding: 20px; border-radius: 10px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        border-left: 5px solid #3b82f6;
     }
-    
-    /* Tablas Admin */
-    .stDataFrame { border-radius: 10px; overflow: hidden; }
+    .kpi-val { font-size: 1.8rem; font-weight: bold; color: #0f172a; }
+    .kpi-lbl { color: #64748b; font-size: 0.9rem; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 4. CONEXIÓN Y DATOS ---
+# --- 3. DATOS Y CONEXIÓN ---
 AVATARS = {
     "avatar_1": "👨‍💼", "avatar_2": "👩‍💼", "avatar_3": "👷‍♂️", "avatar_4": "👷‍♀️",
     "avatar_5": "🤵", "avatar_6": "🕵️‍♀️", "avatar_7": "🦸‍♂️", "avatar_8": "👩‍💻",
@@ -148,8 +83,7 @@ def get_connection():
         database=st.secrets["mysql"]["database"]
     )
 
-# --- FUNCIONES DE BASE DE DATOS (CRUD USUARIOS ACTUALIZADO) ---
-
+# --- 4. FUNCIONES DE LOGICA ---
 def verificar_login(username, password):
     try:
         conn = get_connection(); cursor = conn.cursor(dictionary=True)
@@ -158,30 +92,24 @@ def verificar_login(username, password):
         return user
     except: return None
 
-def cambiar_mis_datos(user_id, new_user, new_pass):
+def solicitar_reset_pass(username):
     conn = get_connection(); cursor = conn.cursor()
-    if new_pass:
-        cursor.execute("UPDATE usuarios SET username=%s, password=%s WHERE id=%s", (new_user, new_pass, user_id))
-    else:
-        cursor.execute("UPDATE usuarios SET username=%s WHERE id=%s", (new_user, user_id))
-    conn.commit(); conn.close()
-    # Actualizar session state
-    st.session_state['user_info']['username'] = new_user
+    cursor.execute("SELECT id FROM usuarios WHERE username=%s", (username,))
+    if cursor.fetchone():
+        cursor.execute("SELECT id FROM password_requests WHERE username=%s AND status='pendiente'", (username,))
+        if not cursor.fetchone():
+            cursor.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,))
+            conn.commit(); conn.close(); return "ok"
+        conn.close(); return "pendiente"
+    conn.close(); return "no_user"
 
-# --- FUNCIONES DE ADMIN (NUEVAS) ---
-
-def admin_get_all_users():
-    conn = get_connection()
-    df = pd.read_sql("SELECT id, username, rol, activo, created_at, avatar FROM usuarios", conn)
-    conn.close()
-    return df
-
-def admin_toggle_status(user_id, current_status):
-    new_status = 0 if current_status == 1 else 1
+def actualizar_avatar(user_id, nuevo_avatar):
     conn = get_connection(); cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET activo=%s WHERE id=%s", (new_status, user_id))
+    cursor.execute("UPDATE usuarios SET avatar=%s WHERE id=%s", (nuevo_avatar, user_id))
     conn.commit(); conn.close()
+    st.session_state['user_info']['avatar'] = nuevo_avatar
 
+# Admin
 def admin_crear_usuario(user, role):
     conn = get_connection(); cursor = conn.cursor()
     try:
@@ -190,20 +118,26 @@ def admin_crear_usuario(user, role):
     except: return False
     finally: conn.close()
 
-def admin_get_requests():
+def admin_get_users():
     conn = get_connection()
-    df = pd.read_sql("SELECT * FROM password_requests WHERE status='pendiente'", conn)
+    df = pd.read_sql("SELECT id, username, rol, activo, created_at FROM usuarios", conn)
     conn.close()
     return df
 
-def admin_resolve_request(req_id, username):
+def admin_toggle_status(uid, current):
+    new = 0 if current == 1 else 1
     conn = get_connection(); cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (username,))
-    cursor.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (req_id,))
+    cursor.execute("UPDATE usuarios SET activo=%s WHERE id=%s", (new, uid))
     conn.commit(); conn.close()
 
-# --- FUNCIONES OPERATIVAS (CALENDARIO/DASHBOARD) ---
-def cargar_datos_seguros():
+def admin_restablecer_password(request_id, username):
+    conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (username,))
+    cursor.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (request_id,))
+    conn.commit(); conn.close()
+
+# Data
+def cargar_datos_completos():
     try:
         conn = get_connection()
         df = pd.read_sql("SELECT * FROM registro_logistica ORDER BY fecha DESC", conn)
@@ -212,6 +146,7 @@ def cargar_datos_seguros():
             df['fecha'] = pd.to_datetime(df['fecha'], errors='coerce')
             df = df.dropna(subset=['fecha'])
             df['fecha_str'] = df['fecha'].dt.strftime('%Y-%m-%d')
+            # Columnas de análisis extra
             df['Año'] = df['fecha'].dt.year
             df['Mes'] = df['fecha'].dt.month_name()
             df['Semana'] = df['fecha'].dt.isocalendar().week
@@ -225,15 +160,15 @@ def guardar_registro(id_reg, fecha, prov, plat, serv, mast, paq, com):
     if id_reg is None:
         sql = "INSERT INTO registro_logistica (fecha, proveedor_logistico, plataforma_cliente, tipo_servicio, master_lote, paquetes, comentarios, created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)"
         cursor.execute(sql, (fecha, prov, plat, serv, mast, paq, com, user))
-        st.toast("✨ Registro Guardado")
+        st.toast("✨ Guardado con éxito")
     else:
         sql = "UPDATE registro_logistica SET fecha=%s, proveedor_logistico=%s, plataforma_cliente=%s, tipo_servicio=%s, master_lote=%s, paquetes=%s, comentarios=%s WHERE id=%s"
         cursor.execute(sql, (fecha, prov, plat, serv, mast, paq, com, id_reg))
-        st.toast("✏️ Registro Actualizado")
+        st.toast("✏️ Actualizado con éxito")
     conn.commit(); conn.close()
 
-# --- COMPONENTE: MODAL DE REGISTRO ---
-@st.dialog("📝 Gestión Operativa")
+# --- 5. MODAL DE REGISTRO ---
+@st.dialog("📝 Gestión de Carga")
 def modal_registro(datos=None):
     rol = st.session_state['user_info']['rol']
     disabled = True if rol == 'analista' else False
@@ -255,279 +190,251 @@ def modal_registro(datos=None):
     with st.form("frm"):
         c1, c2 = st.columns(2)
         with c1:
-            fecha_in = st.date_input("Fecha", d_fecha, disabled=disabled)
+            fecha_in = st.date_input("Fecha llegada", d_fecha, disabled=disabled)
             prov_in = st.selectbox("Proveedor", PROVEEDORES, index=PROVEEDORES.index(d_prov), disabled=disabled)
             plat_in = st.selectbox("Cliente", PLATAFORMAS, index=PLATAFORMAS.index(d_plat), disabled=disabled)
         with c2:
             serv_in = st.selectbox("Servicio", SERVICIOS, index=SERVICIOS.index(d_serv), disabled=disabled)
-            mast_in = st.text_input("Master", d_mast, disabled=disabled)
-            paq_in = st.number_input("Paquetes", min_value=0, value=int(d_paq), disabled=disabled)
+            mast_in = st.text_input("Master ID", d_mast, disabled=disabled)
+            paq_in = st.number_input("Cantidad Paquetes", min_value=0, value=int(d_paq), disabled=disabled)
         com_in = st.text_area("Notas", d_com, disabled=disabled, height=60)
         
         if not disabled:
-            if st.form_submit_button("GUARDAR", type="primary", use_container_width=True):
+            if st.form_submit_button("GUARDAR DATOS", type="primary", use_container_width=True):
                 guardar_registro(d_id, fecha_in, prov_in, plat_in, serv_in, mast_in, paq_in, com_in)
                 st.rerun()
 
 # ==============================================================================
-#  LÓGICA DE NAVEGACIÓN Y RENDERIZADO
+#  LÓGICA PRINCIPAL
 # ==============================================================================
 
-# 1. PANTALLA DE LOGIN
+if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
+if 'user_info' not in st.session_state: st.session_state['user_info'] = None
+
 if not st.session_state['logged_in']:
-    st.markdown("""
-        <div class='login-box'>
-            <div style='font-size:3rem; margin-bottom:10px;'>📦</div>
-            <h2 style='color:#1e293b;'>Nexus Logística</h2>
-            <p style='color:#94a3b8; margin-bottom:30px;'>Acceso al Sistema</p>
-    """, unsafe_allow_html=True)
+    # --- LOGIN MINIMALISTA (SIN HEADER) ---
+    st.markdown("""<style>[data-testid="stSidebar"] { display: none; }</style>""", unsafe_allow_html=True)
     
-    u = st.text_input("Usuario", placeholder="Ingresa tu usuario", label_visibility="collapsed")
-    p = st.text_input("Contraseña", type="password", placeholder="Ingresa tu contraseña", label_visibility="collapsed")
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    if st.button("INICIAR SESIÓN", type="primary", use_container_width=True):
-        user = verificar_login(u, p)
-        if user:
-            st.session_state['logged_in'] = True
-            st.session_state['user_info'] = user
-            st.session_state['current_page'] = "calendar" # Home por defecto
-            st.rerun()
-        else:
-            st.error("Credenciales incorrectas")
-    
-    st.markdown("</div>", unsafe_allow_html=True)
+    # Contenedor centrado y limpio
+    col_l, col_m, col_r = st.columns([1, 1, 1])
+    with col_m:
+        st.markdown("<br><br><br>", unsafe_allow_html=True)
+        # Tabs sutiles
+        t1, t2 = st.tabs(["Ingresar", "Ayuda"])
+        
+        with t1:
+            u = st.text_input("Usuario", placeholder="Usuario", label_visibility="collapsed")
+            p = st.text_input("Contraseña", type="password", placeholder="Contraseña", label_visibility="collapsed")
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("INICIAR SESIÓN", type="primary", use_container_width=True):
+                user = verificar_login(u, p)
+                if user:
+                    st.session_state['logged_in'] = True
+                    st.session_state['user_info'] = user
+                    st.session_state['view'] = "calendar" # Default
+                    st.rerun()
+                else:
+                    st.error("Credenciales incorrectas")
+        
+        with t2:
+            ur = st.text_input("Ingresa tu usuario", key="reset")
+            if st.button("Solicitar restablecimiento"):
+                r = solicitar_reset_pass(ur)
+                if r == "ok": st.success("Solicitud enviada al Admin.")
+                else: st.warning("No se pudo procesar (Usuario no existe o ya pendiente).")
 
 else:
-    # 2. SISTEMA INTERNO (LAYOUT PERSONALIZADO)
+    # --- APLICACIÓN COMPLETA ---
     u_info = st.session_state['user_info']
     rol = u_info['rol']
-    curr = st.session_state['current_page']
-
-    # --- A. PANEL DE PERFIL (TOP LEFT) ---
-    av_icon = AVATARS.get(u_info.get('avatar', 'avatar_1'), '👨‍💼')
     
-    # HTML del Perfil con Botones de Acción Invisibles (usamos columns de Streamlit encima para la lógica)
-    st.markdown(f"""
-    <div class="user-profile-container">
-        <div class="profile-avatar">{av_icon}</div>
-        <div class="profile-info">
-            <span class="profile-name">{u_info['username']}</span>
-            <span class="profile-role">{rol}</span>
+    # --- BARRA LATERAL FIJA Y REDISEÑADA ---
+    with st.sidebar:
+        # 1. TARJETA DE PERFIL
+        av_icon = AVATARS.get(u_info.get('avatar', 'avatar_1'), '👨‍💼')
+        st.markdown(f"""
+        <div class="profile-card">
+            <div class="profile-avatar">{av_icon}</div>
+            <div class="profile-name">{u_info['username']}</div>
+            <div class="profile-role">{rol}</div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Colocamos botones invisibles sobre el área del perfil para acciones rápidas es difícil, 
-    # así que pondremos los botones de configuración y logout justo al lado del header usando columnas de Streamlit
-    # Truco: Usamos st.sidebar NO visible para inyectar lógica, o un container float. 
-    # Mejor: Agregamos botones al container fijo en HTML no es facil sin JS.
-    # Solución: Botones en la esquina superior izquierda usando st.columns que empujen el contenido.
-    
-    # --- RENDERIZADO DE PÁGINAS ---
-    
-    # >> PÁGINA: CONFIGURACIÓN CUENTA
-    if curr == "settings":
-        st.title("⚙️ Configuración de Cuenta")
-        with st.container(border=True):
-            col1, col2 = st.columns([1, 2])
-            with col1:
-                st.markdown(f"<div style='font-size:5rem; text-align:center;'>{av_icon}</div>", unsafe_allow_html=True)
-            with col2:
-                with st.form("my_data"):
-                    nu = st.text_input("Cambiar Nombre de Usuario", value=u_info['username'])
-                    np = st.text_input("Cambiar Contraseña (Dejar vacío para mantener)", type="password")
-                    if st.form_submit_button("Actualizar mis datos", type="primary"):
-                        cambiar_mis_datos(u_info['id'], nu, np)
-                        st.success("Datos actualizados. Por favor inicia sesión de nuevo.")
-                        time.sleep(2)
-                        st.session_state['logged_in'] = False
-                        st.rerun()
+        """, unsafe_allow_html=True)
         
-        if st.button("⬅️ Volver al Calendario"):
-            st.session_state['current_page'] = "calendar"
+        with st.expander("⚙️ Configuración"):
+            st.caption("Cambiar Avatar")
+            cols = st.columns(5)
+            for i, (k, v) in enumerate(AVATARS.items()):
+                with cols[i%5]:
+                    if st.button(v, key=f"av_{k}"): actualizar_avatar(u_info['id'], k); st.rerun()
+        
+        st.divider()
+        
+        # 2. MENÚ DE NAVEGACIÓN
+        st.caption("NAVEGACIÓN")
+        menu = st.radio("Ir a:", ["📅 Calendario", "📊 Análisis & Reportes"], label_visibility="collapsed")
+        
+        # 3. SECCIÓN ADMIN (SOLO VISIBLE PARA ADMIN)
+        if rol == 'admin':
+            st.divider()
+            st.caption("ADMINISTRACIÓN")
+            admin_opts = st.selectbox("Herramientas", ["Gestión Usuarios", "Solicitudes Clave"])
+            if admin_opts == "Gestión Usuarios":
+                st.session_state['view'] = "admin_users"
+            elif admin_opts == "Solicitudes Clave":
+                st.session_state['view'] = "admin_reqs"
+            
+            # Forzar vista si selecciona menú principal
+            if menu == "📅 Calendario": st.session_state['view'] = "calendar"
+            elif menu == "📊 Análisis & Reportes": st.session_state['view'] = "dashboard"
+        else:
+             if menu == "📅 Calendario": st.session_state['view'] = "calendar"
+             elif menu == "📊 Análisis & Reportes": st.session_state['view'] = "dashboard"
+
+        st.divider()
+        if st.button("Cerrar Sesión", use_container_width=True):
+            st.session_state['logged_in'] = False
             st.rerun()
 
-    # >> PÁGINA: ADMIN PANEL
-    elif curr == "admin":
-        if rol != 'admin':
-            st.error("No tienes permisos.")
-        else:
-            st.title("🛠️ Panel de Administración")
-            t1, t2, t3 = st.tabs(["👥 Gestión Usuarios", "➕ Crear Usuario", "🔐 Solicitudes Clave"])
-            
-            with t1:
-                df_users = admin_get_all_users()
-                # Mostramos tabla interactiva
-                st.dataframe(
-                    df_users,
-                    column_config={
-                        "activo": st.column_config.CheckboxColumn("Activo", help="Desmarcar para bloquear acceso"),
-                    },
-                    use_container_width=True,
-                    hide_index=True
-                )
-                
-                # Acciones sobre usuarios
-                c_act1, c_act2 = st.columns(2)
-                with c_act1:
-                    u_sel = st.selectbox("Seleccionar Usuario para modificar estado", df_users['id'].tolist(), format_func=lambda x: f"ID {x}")
-                with c_act2:
-                    st.write("") # Spacer
-                    st.write("")
-                    curr_status = df_users[df_users['id']==u_sel]['activo'].values[0]
-                    btn_label = "🔴 Desactivar" if curr_status == 1 else "🟢 Activar"
-                    if st.button(btn_label):
-                        admin_toggle_status(u_sel, curr_status)
-                        st.rerun()
+    # --- CONTENIDO PRINCIPAL ---
+    df = cargar_datos_completos()
+    vista = st.session_state['view']
 
-            with t2:
-                with st.form("new_u_admin"):
-                    nu = st.text_input("Usuario")
-                    nr = st.selectbox("Rol", ["user", "analista", "admin"])
-                    st.caption("La contraseña por defecto será: 123456")
-                    if st.form_submit_button("Crear Usuario"):
-                        if admin_crear_usuario(nu, nr): st.success(f"Usuario {nu} creado."); st.rerun()
-                        else: st.error("Error al crear.")
-
-            with t3:
-                reqs = admin_get_requests()
-                if reqs.empty: st.info("No hay solicitudes pendientes.")
-                else:
-                    for _, row in reqs.iterrows():
-                        c_r1, c_r2 = st.columns([3, 1])
-                        c_r1.warning(f"Usuario: **{row['username']}** solicitó restablecer contraseña.")
-                        if c_r2.button("Restablecer", key=f"rst_{row['id']}"):
-                            admin_resolve_request(row['id'], row['username'])
-                            st.success("Restablecida a '123456'")
-                            st.rerun()
-
-    # >> PÁGINA: DASHBOARD
-    elif curr == "dashboard":
-        st.title("📊 Inteligencia de Negocios")
-        df = cargar_datos_seguros()
-        if not df.empty:
-            k1, k2, k3, k4 = st.columns(4)
-            k1.metric("Paquetes", f"{df['paquetes'].sum():,}")
-            k2.metric("Lotes/Viajes", len(df))
-            k3.metric("Top Cliente", df.groupby('plataforma_cliente')['paquetes'].sum().idxmax())
-            k4.metric("Promedio Lote", int(df['paquetes'].mean()))
-            
-            st.divider()
-            c1, c2 = st.columns(2)
-            c1.plotly_chart(px.line(df.groupby('fecha')['paquetes'].sum().reset_index(), x='fecha', y='paquetes', title="Tendencia"), use_container_width=True)
-            c2.plotly_chart(px.pie(df, values='paquetes', names='proveedor_logistico', title="Share Proveedores"), use_container_width=True)
-        else:
-            st.info("Sin datos.")
-
-    # >> PÁGINA: CALENDARIO (HOME)
-    elif curr == "calendar":
-        c_title, c_action = st.columns([5, 1])
-        with c_title: st.title("📅 Calendario Operativo")
-        with c_action:
+    # >> VISTA 1: CALENDARIO
+    if vista == "calendar":
+        c1, c2 = st.columns([5, 1])
+        with c1: st.title("Calendario Operativo")
+        with c2: 
             if rol != 'analista':
-                if st.button("➕ NUEVO", type="primary", use_container_width=True):
-                    modal_registro(None)
+                if st.button("➕ NUEVO", type="primary", use_container_width=True): modal_registro(None)
 
-        df = cargar_datos_seguros()
         evts = []
         if not df.empty:
             for _, r in df.iterrows():
-                c = "#64748b"
-                if "AliExpress" in r['plataforma_cliente']: c="#f97316"
-                elif "Temu" in r['plataforma_cliente']: c="#10b981"
-                elif "Shein" in r['plataforma_cliente']: c="#0f172a"
+                color = "#64748b"
+                if "AliExpress" in r['plataforma_cliente']: color = "#f97316"
+                elif "Temu" in r['plataforma_cliente']: color = "#10b981"
+                elif "Shein" in r['plataforma_cliente']: color = "#0f172a"
                 
+                # Props seguros
                 props = {
                     "id": int(r['id']), "fecha_str": str(r['fecha_str']),
                     "proveedor": str(r['proveedor_logistico']), "plataforma": str(r['plataforma_cliente']),
                     "servicio": str(r['tipo_servicio']), "master": str(r['master_lote']),
                     "paquetes": int(r['paquetes']), "comentarios": str(r['comentarios'])
                 }
-                evts.append({"title": f"{int(r['paquetes'])} - {r['proveedor_logistico']}", "start": r['fecha_str'], "backgroundColor": c, "borderColor": c, "extendedProps": props})
+                evts.append({"title": f"{int(r['paquetes'])} - {r['proveedor_logistico']}", "start": r['fecha_str'], "backgroundColor": color, "borderColor": color, "extendedProps": props})
 
-        cal = calendar(events=evts, options={"initialView": "dayGridMonth", "height": "700px"}, key="cal_main")
+        cal = calendar(events=evts, options={"initialView": "dayGridMonth", "height": "750px"}, key="cal_main")
         if cal.get("eventClick"): modal_registro(cal["eventClick"]["event"]["extendedProps"])
 
-    # --- B. DOCK DE NAVEGACIÓN (BOTTOM CENTER) ---
-    
-    # Definimos clases CSS para saber cuál está activo
-    cls_cal = "dock-btn-active" if curr == "calendar" else "dock-btn"
-    cls_dash = "dock-btn-active" if curr == "dashboard" else "dock-btn"
-    cls_admin = "dock-btn-active" if curr == "admin" else "dock-btn"
-    cls_set = "dock-btn-active" if curr == "settings" else "dock-btn"
-    cls_out = "dock-btn" # Logout nunca está activo, es acción
-
-    # Renderizamos el Dock
-    # IMPORTANTE: Para aplicar las clases CSS a st.button, usamos un truco de javascript o simplemente
-    # aprovechamos que Streamlit permite CSS targeting por nth-child, pero como queremos iconos flotantes
-    # usaremos columnas en un container fijo abajo.
-    
-    st.markdown("<div class='dock-container'>", unsafe_allow_html=True)
-    
-    # Usamos st.columns dentro del flujo normal, pero el CSS 'dock-container' lo posiciona fixed abajo.
-    # El problema es que st.columns NO se renderiza dentro del div HTML puro. 
-    # Solución: Creamos el layout de botones y usamos CSS para inyectarles el estilo 'dock-btn'.
-    
-    dock_cols = st.columns(5)
-    
-    # Función auxiliar para aplicar estilo al botón según índice
-    def set_btn_style(idx, is_active):
-        active_class = "dock-btn-active" if is_active else "dock-btn"
-        # Inyectamos estilo específico para este botón usando nth-of-type selector en el CSS global
-        # pero para simplificar, confiamos en el estilo general y el efecto hover.
-        # Para marcar el activo visualmente con Python es difícil sin recargar CSS dinámico.
-        # Usaremos iconos rellenos vs outline para diferenciar si es posible, o colores.
-        pass
-
-    with dock_cols[0]:
-        if st.button("📅", key="btn_cal", help="Calendario"): 
-            st.session_state['current_page'] = "calendar"
-            st.rerun()
-    
-    with dock_cols[1]:
-        if st.button("📊", key="btn_dash", help="Dashboard"): 
-            st.session_state['current_page'] = "dashboard"
-            st.rerun()
-
-    with dock_cols[2]:
-        if rol == 'admin':
-            if st.button("🛠️", key="btn_admin", help="Admin Panel"): 
-                st.session_state['current_page'] = "admin"
-                st.rerun()
+    # >> VISTA 2: DASHBOARDS COMPLETOS
+    elif vista == "dashboard":
+        st.title("Centro de Análisis de Datos")
+        
+        # FILTROS PROFUNDOS
+        with st.expander("🔎 FILTROS AVANZADOS", expanded=True):
+            f1, f2, f3, f4, f5 = st.columns(5)
+            df_f = df.copy()
+            if not df.empty:
+                yrs = sorted(df['Año'].unique())
+                provs = df['proveedor_logistico'].unique()
+                clis = df['plataforma_cliente'].unique()
+                servs = df['tipo_servicio'].unique()
+                weeks = sorted(df['Semana'].unique())
+                
+                sy = f1.multiselect("Año", yrs)
+                sm = f2.multiselect("Mes", df['Mes'].unique())
+                sw = f3.multiselect("Semana", weeks)
+                sp = f4.multiselect("Proveedor", provs)
+                sc = f5.multiselect("Cliente", clis)
+                
+                if sy: df_f = df_f[df_f['Año'].isin(sy)]
+                if sm: df_f = df_f[df_f['Mes'].isin(sm)]
+                if sw: df_f = df_f[df_f['Semana'].isin(sw)]
+                if sp: df_f = df_f[df_f['proveedor_logistico'].isin(sp)]
+                if sc: df_f = df_f[df_f['plataforma_cliente'].isin(sc)]
+        
+        if df_f.empty: st.warning("No hay datos coincidentes.")
         else:
-            st.markdown("<div style='width:50px;'></div>", unsafe_allow_html=True) # Espacio vacío
+            # KPIS
+            k1, k2, k3, k4 = st.columns(4)
+            k1.markdown(f"<div class='kpi-card'><div class='kpi-val'>{df_f['paquetes'].sum():,}</div><div class='kpi-lbl'>Total Paquetes</div></div>", unsafe_allow_html=True)
+            k2.markdown(f"<div class='kpi-card'><div class='kpi-val'>{len(df_f)}</div><div class='kpi-lbl'>Total Viajes</div></div>", unsafe_allow_html=True)
+            try: top = df_f.groupby('plataforma_cliente')['paquetes'].sum().idxmax()
+            except: top = "-"
+            k3.markdown(f"<div class='kpi-card'><div class='kpi-val'>{top}</div><div class='kpi-lbl'>Cliente Top</div></div>", unsafe_allow_html=True)
+            k4.markdown(f"<div class='kpi-card'><div class='kpi-val'>{int(df_f['paquetes'].mean())}</div><div class='kpi-lbl'>Promedio</div></div>", unsafe_allow_html=True)
+            
+            st.divider()
+            
+            # PESTAÑAS DE ANÁLISIS
+            t1, t2, t3, t4 = st.tabs(["📈 Evolución", "🍰 Distribución", "🔥 Intensidad", "📥 Datos & Exportar"])
+            
+            with t1:
+                # Grafico Linea Tiempo
+                g_df = df_f.groupby('fecha')['paquetes'].sum().reset_index()
+                fig = px.line(g_df, x='fecha', y='paquetes', markers=True, title="Tendencia de Volumen Diario")
+                fig.update_traces(line_color='#2563eb', line_width=3)
+                st.plotly_chart(fig, use_container_width=True)
+            
+            with t2:
+                c_a, c_b = st.columns(2)
+                with c_a: 
+                    # Sunburst
+                    fig = px.sunburst(df_f, path=['plataforma_cliente', 'proveedor_logistico'], values='paquetes', title="Distribución Jerárquica")
+                    st.plotly_chart(fig, use_container_width=True)
+                with c_b:
+                    # Barras
+                    fig = px.bar(df_f, x='proveedor_logistico', y='paquetes', color='tipo_servicio', title="Volumen por Proveedor y Servicio")
+                    st.plotly_chart(fig, use_container_width=True)
+            
+            with t3:
+                # Heatmap
+                fig = px.density_heatmap(df_f, x='Semana', y='DiaSemana', z='paquetes', color_continuous_scale="Viridis", title="Mapa de Calor (Semana vs Día)")
+                st.plotly_chart(fig, use_container_width=True)
+                
+            with t4:
+                st.subheader("Exportación de Datos")
+                cols = st.multiselect("Columnas a exportar", df_f.columns.tolist(), default=['fecha', 'proveedor_logistico', 'plataforma_cliente', 'paquetes', 'master_lote'])
+                if cols:
+                    df_exp = df_f[cols]
+                    csv = df_exp.to_csv(index=False).encode('utf-8')
+                    st.download_button("📥 DESCARGAR EXCEL/CSV", csv, "reporte_logistica.csv", "text/csv", type="primary")
+                st.dataframe(df_f, use_container_width=True)
 
-    with dock_cols[3]:
-        if st.button("⚙️", key="btn_set", help="Configuración"): 
-            st.session_state['current_page'] = "settings"
-            st.rerun()
+    # >> VISTAS ADMIN
+    elif vista == "admin_users":
+        st.title("Gestión de Usuarios")
+        t_crear, t_ver = st.tabs(["Crear Usuario", "Ver Todos"])
+        
+        with t_crear:
+            with st.form("new_u"):
+                nu = st.text_input("Usuario")
+                nr = st.selectbox("Rol", ["user", "analista", "admin"])
+                if st.form_submit_button("Crear Usuario (Clave: 123456)"):
+                    if admin_crear_usuario(nu, nr): st.success("Creado")
+                    else: st.error("Error")
+        
+        with t_ver:
+            df_u = admin_get_users()
+            st.dataframe(df_u, use_container_width=True)
             
-    with dock_cols[4]:
-        if st.button("🚪", key="btn_out", help="Cerrar Sesión"):
-            st.session_state['logged_in'] = False
-            st.rerun()
-            
-    st.markdown("</div>", unsafe_allow_html=True)
+            c_u1, c_u2 = st.columns(2)
+            uid = c_u1.selectbox("Seleccionar Usuario", df_u['id'].tolist())
+            current = df_u[df_u['id']==uid]['activo'].values[0]
+            lbl = "Desactivar" if current==1 else "Activar"
+            if c_u2.button(f"{lbl} Usuario"):
+                admin_toggle_status(uid, current); st.rerun()
 
-    # Inyección CSS dinámica para resaltar el botón activo en el Dock
-    # Esto busca el botón en la posición X dentro del dock y le da opacidad 1
-    idx_map = {"calendar": 1, "dashboard": 2, "admin": 3, "settings": 4}
-    active_idx = idx_map.get(curr, 0)
-    
-    if active_idx > 0:
-        st.markdown(f"""
-            <style>
-            /* Selector avanzado para encontrar el botón dentro del dock container (que visualmente está abajo) */
-            /* Streamlit renderiza los botones como div.stButton > button */
-            /* Dependiendo de la estructura, esto puede variar, pero intentamos targetear por orden */
-            
-            div.stButton:nth-of-type({active_idx}) > button {{
-                background-color: rgba(255,255,255,0.8) !important;
-                opacity: 1 !important;
-                transform: scale(1.15) !important;
-                border-bottom: 3px solid #3b82f6 !important;
-                box-shadow: 0 0 15px rgba(59, 130, 246, 0.3) !important;
-            }}
-            </style>
-        """, unsafe_allow_html=True)
+    elif vista == "admin_reqs":
+        st.title("Solicitudes de Contraseña")
+        conn = get_connection(); reqs = pd.read_sql("SELECT * FROM password_requests WHERE status='pendiente'", conn); conn.close()
+        
+        if reqs.empty: st.info("No hay solicitudes pendientes.")
+        else:
+            for _, r in reqs.iterrows():
+                c_r1, c_r2 = st.columns([3, 1])
+                c_r1.warning(f"Usuario **{r['username']}** solicitó resetear su clave.")
+                if c_r2.button(f"Resetear a '123456'", key=f"rs_{r['id']}"):
+                    admin_restablecer_password(r['id'], r['username'])
+                    st.success("Hecho"); st.rerun()
