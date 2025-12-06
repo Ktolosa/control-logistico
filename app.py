@@ -1,49 +1,24 @@
 import streamlit as st
 import pandas as pd
 import mysql.connector
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from streamlit_calendar import calendar
 import plotly.express as px
 
-# --- 1. CONFIGURACIÓN ---
-st.set_page_config(page_title="Control Logístico", layout="wide", initial_sidebar_state="collapsed")
+# --- CONFIGURACIÓN ---
+st.set_page_config(page_title="Logística", layout="wide")
 
-# --- 2. CSS PARA ESTILO Y ALTURA ---
+# --- ESTILOS CSS ---
 st.markdown("""
     <style>
-    .block-container { padding-top: 1rem; padding-bottom: 2rem; }
-    
-    /* Calendario Grande y Clickeable */
-    .fc {
-        background-color: white;
-        padding: 10px;
-        border-radius: 10px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-        height: 750px !important; 
-    }
-    
-    /* Estilo Tarjetas de Semana (Derecha) */
-    .week-card {
-        background-color: #f8f9fa;
-        border-left: 5px solid #2c3e50;
-        padding: 12px;
-        margin-bottom: 12px;
-        border-radius: 5px;
-        border: 1px solid #eee;
-    }
-    .week-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
-    .week-title { font-weight: bold; color: #2c3e50; font-size: 1rem; }
-    .week-dates { font-size: 0.75rem; color: #666; font-weight: 500; text-transform: uppercase; margin-bottom: 8px; }
-    
-    .stat-row { display: flex; justify-content: space-between; font-size: 0.9rem; padding: 2px 0; border-bottom: 1px dashed #eee; }
-    .val-paq { color: #2980b9; font-weight: bold; }
-    .val-mast { color: #d35400; font-weight: bold; }
+    .stButton button { width: 100%; border-radius: 5px; font-weight: bold; }
+    /* Ajuste para que el calendario se vea bien */
+    .fc { background-color: white; padding: 15px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. CONEXIÓN BASE DE DATOS ---
+# --- CONEXIÓN DB ---
 def get_connection():
-    # Asegúrate de tener tu archivo .streamlit/secrets.toml configurado
     return mysql.connector.connect(
         host=st.secrets["mysql"]["host"],
         user=st.secrets["mysql"]["user"],
@@ -51,233 +26,172 @@ def get_connection():
         database=st.secrets["mysql"]["database"]
     )
 
+# --- CARGAR DATOS ---
 def cargar_datos():
     try:
         conn = get_connection()
-        # Cargamos todos los registros individuales
-        df = pd.read_sql("SELECT * FROM registro_logistica", conn)
+        # Traemos el ID también, es vital para editar
+        df = pd.read_sql("SELECT id, fecha, proveedor, tipo_servicio, master_lote, paquetes, comentarios FROM registro_logistica", conn)
         conn.close()
         if not df.empty:
             df['fecha'] = pd.to_datetime(df['fecha'])
             df['fecha_str'] = df['fecha'].dt.strftime('%Y-%m-%d')
         return df
     except Exception as e:
-        st.error(f"Error de conexión: {e}")
+        st.error(f"Error DB: {e}")
         return pd.DataFrame()
 
-def guardar_registro(fecha, proveedor, tipo_servicio, master, paquetes, comentarios):
+# --- GUARDAR / ACTUALIZAR (UPSERT) ---
+def guardar_en_bd(id_registro, fecha, proveedor, servicio, master, paquetes, notas):
     conn = get_connection()
     cursor = conn.cursor()
-    # Insertamos un NUEVO registro (permitiendo múltiples por día)
-    query = """
-    INSERT INTO registro_logistica (fecha, proveedor, tipo_servicio, master_lote, paquetes, comentarios)
-    VALUES (%s, %s, %s, %s, %s, %s)
-    """
-    vals = (fecha, proveedor, tipo_servicio, master, paquetes, comentarios)
-    cursor.execute(query, vals)
+    
+    if id_registro is None:
+        # INSERTAR NUEVO
+        query = """
+        INSERT INTO registro_logistica (fecha, proveedor, tipo_servicio, master_lote, paquetes, comentarios)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """
+        cursor.execute(query, (fecha, proveedor, servicio, master, paquetes, notas))
+        st.toast("✅ Nuevo registro creado exitosamente")
+    else:
+        # ACTUALIZAR EXISTENTE (EDITAR)
+        query = """
+        UPDATE registro_logistica 
+        SET fecha=%s, proveedor=%s, tipo_servicio=%s, master_lote=%s, paquetes=%s, comentarios=%s
+        WHERE id=%s
+        """
+        cursor.execute(query, (fecha, proveedor, servicio, master, paquetes, notas, id_registro))
+        st.toast("✏️ Registro actualizado correctamente")
+        
     conn.commit()
     conn.close()
 
-# --- 4. LISTAS DESPLEGABLES ---
-LISTA_PROVEEDORES = [
-    "Mail Americas AliExpress", 
-    "Mail Americas Shein", 
-    "Imile Temu", 
-    "APG Temu", 
-    "GLC Temu"
-]
+# --- LISTAS ---
+PROVEEDORES = ["Mail Americas AliExpress", "Mail Americas Shein", "Imile Temu", "APG Temu", "GLC Temu"]
+SERVICIOS = ["Aduana Propia", "Solo Ultima Milla"]
 
-LISTA_SERVICIOS = [
-    "Aduana Propia",
-    "Solo Ultima Milla"
-]
+# --- VENTANA EMERGENTE (DIALOG) ---
+@st.dialog("Gestión de Registro Logístico")
+def formulario_emergente(datos=None):
+    # Si 'datos' viene lleno, es EDICIÓN. Si viene None, es NUEVO.
+    
+    # Preparar valores por defecto
+    default_fecha = date.today()
+    default_prov = PROVEEDORES[0]
+    default_serv = SERVICIOS[0]
+    default_mast = ""
+    default_paq = 0
+    default_nota = ""
+    id_actual = None
 
-# --- 5. CALCULAR FECHAS DE SEMANA ---
-def get_week_details(year, week_num):
-    try:
-        d_start = date.fromisocalendar(year, week_num, 1)
-        d_end = d_start + timedelta(days=6)
-        meses = {1:"Ene", 2:"Feb", 3:"Mar", 4:"Abr", 5:"May", 6:"Jun", 
-                 7:"Jul", 8:"Ago", 9:"Sep", 10:"Oct", 11:"Nov", 12:"Dic"}
-        rango = f"{d_start.day} {meses[d_start.month]} - {d_end.day} {meses[d_end.month]}"
-        return meses[d_start.month], rango
-    except:
-        return "", ""
-
-# --- 6. VENTANA MODAL (POPUP) ---
-@st.dialog("📝 Nuevo Ingreso")
-def modal_registro(fecha_str):
-    try:
-        fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
-        st.markdown(f"### 📅 Ingreso para: {fecha_obj.strftime('%d / %m / %Y')}")
-    except:
-        st.write(f"Fecha: {fecha_str}")
-
-    with st.form("mi_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            prov = st.selectbox("🚚 Proveedor", LISTA_PROVEEDORES)
-            tipo = st.selectbox("⚙️ Tipo Servicio", LISTA_SERVICIOS)
-        
-        with col2:
-            mast = st.text_input("🆔 Master / Lote", placeholder="Ej: MASTER-001")
-            paq = st.number_input("📦 Cantidad Paquetes", min_value=1, step=1)
+    if datos:
+        # Estamos editando, sobreescribimos los defaults
+        id_actual = datos.get('id')
+        try:
+            default_fecha = datetime.strptime(datos.get('fecha_str'), '%Y-%m-%d').date()
+        except:
+            default_fecha = date.today()
             
-        com = st.text_area("💬 Notas (Opcional)", height=80)
+        # Validar que el proveedor exista en la lista, si no, usar el primero
+        prov_db = datos.get('proveedor')
+        default_prov = prov_db if prov_db in PROVEEDORES else PROVEEDORES[0]
         
-        if st.form_submit_button("💾 Guardar Registro", type="primary", use_container_width=True):
-            if mast and paq > 0:
-                guardar_registro(fecha_str, prov, tipo, mast, paq, com)
-                st.rerun()
-            else:
-                st.error("Falta el ID Master o Paquetes.")
-
-# --- 7. INTERFAZ PRINCIPAL ---
-df = cargar_datos()
-
-st.title("Sistema de Control Logístico")
-
-# Métricas rápidas arriba
-if not df.empty:
-    hoy = date.today()
-    # Filtramos datos del mes actual
-    df_mes = df[df['fecha'].dt.month == hoy.month]
-    
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("📦 Paquetes (Mes)", f"{df_mes['paquetes'].sum():,}")
-    col2.metric("🚛 Entradas (Mes)", len(df_mes)) # Cantidad de registros
-    
-    # Proveedor Top del Mes
-    if not df_mes.empty:
-        top_prov = df_mes.groupby('proveedor')['paquetes'].sum().idxmax()
-        col3.metric("🏆 Top Proveedor", top_prov)
-    else:
-        col3.metric("🏆 Top Proveedor", "-")
+        serv_db = datos.get('tipo_servicio')
+        default_serv = serv_db if serv_db in SERVICIOS else SERVICIOS[0]
         
-    prom = int(df_mes['paquetes'].sum() / len(df_mes['fecha'].unique())) if not df_mes.empty else 0
-    col4.metric("📊 Promedio Diario", prom)
+        default_mast = datos.get('master_lote', "")
+        default_paq = datos.get('paquetes', 0)
+        default_nota = datos.get('comentarios', "")
 
-st.divider()
-
-# Layout: Calendario (Izquierda) - Resumen Semanal (Derecha)
-col_cal, col_sidebar = st.columns([4, 1.3], gap="medium")
-
-with col_cal:
-    # Preparar eventos para el calendario
-    # Como ahora tenemos multiples registros por dia, los agrupamos para mostrar totales en el calendario
-    events = []
-    if not df.empty:
-        # Agrupamos por fecha y proveedor para crear "burbujas" en el calendario
-        agrupado_dia = df.groupby(['fecha_str', 'proveedor'])['paquetes'].sum().reset_index()
-        
-        for _, row in agrupado_dia.iterrows():
-            # Asignar color según proveedor para diferenciar visualmente
-            color = "#3788d8" # Azul default
-            if "AliExpress" in row['proveedor']: color = "#e67e22" # Naranja
-            elif "Temu" in row['proveedor']: color = "#2ecc71" # Verde
-            elif "Shein" in row['proveedor']: color = "#9b59b6" # Morado
-            
-            events.append({
-                "title": f"{row['paquetes']} - {row['proveedor'].split(' ')[-1]}", # Muestra "500 - Temu"
-                "start": row['fecha_str'],
-                "backgroundColor": color,
-                "borderColor": color,
-                "allDay": True
-            })
-
-    cal_options = {
-        "editable": False,
-        "selectable": True, 
-        "headerToolbar": {
-            "left": "prev,next today",
-            "center": "title",
-            "right": "dayGridMonth"
-        },
-        "initialView": "dayGridMonth",
-        "height": "750px",
-        "locale": "es"
-    }
-
-    state = calendar(events=events, options=cal_options, key="mi_calendario")
-
-    # --- LÓGICA DE CLIC ---
-    date_click = state.get("dateClick")
-    # Solo permitimos clic en día vacío o celda para agregar NUEVO registro
-    # (Ya no editamos al hacer clic, solo agregamos, para soportar multiples ingresos)
-    if date_click and isinstance(date_click, dict) and "dateStr" in date_click:
-        modal_registro(date_click["dateStr"])
-
-with col_sidebar:
-    st.subheader("🗓️ Totales Semana")
-    st.markdown("<hr style='margin: 5px 0;'>", unsafe_allow_html=True)
-    
-    if not df.empty:
-        df['year'] = df['fecha'].dt.year
-        df['week'] = df['fecha'].dt.isocalendar().week
-        
-        # Agrupar por semana
-        resumen = df.groupby(['year', 'week'])['paquetes'].sum().reset_index().sort_values(['year', 'week'], ascending=False)
-        
-        if resumen.empty:
-            st.info("Sin datos.")
-        else:
-            for _, fila in resumen.iterrows():
-                year, week = int(fila['year']), int(fila['week'])
-                mes_nom, rango_fechas = get_week_details(year, week)
-                
-                # Desglose por tipo de servicio en esa semana
-                df_semana = df[(df['year'] == year) & (df['week'] == week)]
-                aduana = df_semana[df_semana['tipo_servicio'] == "Aduana Propia"]['paquetes'].sum()
-                ultima = df_semana[df_semana['tipo_servicio'] == "Solo Ultima Milla"]['paquetes'].sum()
-                
-                st.markdown(f"""
-                <div class="week-card">
-                    <div class="week-header">
-                        <span class="week-title">Semana {week} <span style="font-weight:normal;">({mes_nom})</span></span>
-                    </div>
-                    <div class="week-dates">📅 {rango_fechas}</div>
-                    
-                    <div class="stat-row">
-                        <span>📦 Total Paquetes</span>
-                        <span class="val-paq" style="font-size:1.1rem;">{fila['paquetes']}</span>
-                    </div>
-                    <div class="stat-row" style="font-size:0.8rem; color:#555;">
-                        <span>🏢 Aduana Propia</span>
-                        <span>{aduana}</span>
-                    </div>
-                    <div class="stat-row" style="font-size:0.8rem; color:#555; border:none;">
-                        <span>🚚 Última Milla</span>
-                        <span>{ultima}</span>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-st.divider()
-
-# --- 8. DASHBOARD ANALÍTICO ---
-if not df.empty:
-    st.header("📊 Análisis y Gráficos")
-    
-    tab1, tab2, tab3 = st.tabs(["Evolución", "Distribución Proveedores", "Detalle de Datos"])
-    
-    with tab1:
-        # Gráfico de evolución diaria por Proveedor
-        fig_line = px.bar(df, x='fecha', y='paquetes', color='proveedor', 
-                           title="Paquetes Diarios por Proveedor (Apilado)",
-                           labels={'fecha': 'Fecha', 'paquetes': 'Cantidad Paquetes'})
-        st.plotly_chart(fig_line, use_container_width=True)
-
-    with tab2:
+    # El Formulario dentro del Popup
+    with st.form("form_modal"):
         c1, c2 = st.columns(2)
         with c1:
-             # Pastel por Proveedor
-            fig_pie = px.pie(df, values='paquetes', names='proveedor', title="Market Share (Paquetes)")
-            st.plotly_chart(fig_pie, use_container_width=True)
+            fecha_in = st.date_input("Fecha", default_fecha)
+            prov_in = st.selectbox("Proveedor", PROVEEDORES, index=PROVEEDORES.index(default_prov))
+            serv_in = st.selectbox("Tipo Servicio", SERVICIOS, index=SERVICIOS.index(default_serv))
         with c2:
-            # Pastel por Servicio
-            fig_pie2 = px.pie(df, values='paquetes', names='tipo_servicio', title="Tipo de Operación", hole=0.4)
-            st.plotly_chart(fig_pie2, use_container_width=True)
+            mast_in = st.text_input("Master / Lote", default_mast)
+            paq_in = st.number_input("Paquetes", min_value=0, value=default_paq, step=1)
+            nota_in = st.text_area("Notas", default_nota, height=68)
+            
+        col_b1, col_b2 = st.columns([1, 1])
+        with col_b1:
+            submitted = st.form_submit_button("💾 GUARDAR", type="primary", use_container_width=True)
+        
+    if submitted:
+        if mast_in and paq_in > 0:
+            guardar_en_bd(id_actual, fecha_in, prov_in, serv_in, mast_in, paq_in, nota_in)
+            st.rerun() # Recarga la página para cerrar modal y actualizar calendario
+        else:
+            st.error("⚠️ Falta Master o Cantidad")
 
-    with tab3:
-        st.dataframe(df[['fecha', 'proveedor', 'tipo_servicio', 'master_lote', 'paquetes', 'comentarios']].sort_values('fecha', ascending=False), use_container_width=True)
+# --- UI PRINCIPAL ---
+
+st.title("📦 Sistema Logístico")
+
+# 1. BOTÓN SUPERIOR GRANDE
+col_btn, col_kpi = st.columns([1, 3])
+with col_btn:
+    if st.button("➕ AGREGAR NUEVO REGISTRO", type="primary"):
+        formulario_emergente(None) # Llamamos al modal vacío
+
+df = cargar_datos()
+
+# 2. CALENDARIO Y EDICIÓN
+events = []
+if not df.empty:
+    for _, row in df.iterrows():
+        # Definir color
+        color = "#3788d8"
+        if "AliExpress" in row['proveedor']: color = "#e67e22"
+        elif "Shein" in row['proveedor']: color = "#9b59b6"
+        elif "Temu" in row['proveedor']: color = "#2ecc71"
+        
+        events.append({
+            "id": str(row['id']), # Importante pasar el ID al calendario
+            "title": f"{row['paquetes']} - {row['proveedor'].split(' ')[1]}",
+            "start": row['fecha_str'],
+            "backgroundColor": color,
+            "borderColor": color,
+            # Pasamos todos los datos en extendedProps para poder recuperarlos al editar
+            "extendedProps": {
+                "id": row['id'],
+                "fecha_str": row['fecha_str'],
+                "proveedor": row['proveedor'],
+                "tipo_servicio": row['tipo_servicio'],
+                "master_lote": row['master_lote'],
+                "paquetes": row['paquetes'],
+                "comentarios": row['comentarios']
+            }
+        })
+
+cal_ops = {
+    "initialView": "dayGridMonth",
+    "headerToolbar": {"left": "prev,next today", "center": "title", "right": "dayGridMonth"},
+    "height": "700px",
+    "selectable": False, # Desactivamos seleccion de celda vacia, usamos el boton superior
+    "editable": False,
+}
+
+# Dibujar calendario
+calendar_state = calendar(events=events, options=cal_ops, key="cal_main")
+
+# LÓGICA DE CLIC PARA EDITAR
+if calendar_state.get("eventClick"):
+    event_data = calendar_state["eventClick"]["event"]
+    # Extraemos los datos guardados en extendedProps
+    props = event_data.get("extendedProps", {})
+    # Abrimos el MISMO modal, pero pasando los datos para que se rellene solo
+    formulario_emergente(props)
+
+# --- VISUALIZACIÓN EXTRA (ABAJO) ---
+st.divider()
+if not df.empty:
+    st.subheader("📊 Resumen Rápido")
+    tab1, tab2 = st.tabs(["Totales por Proveedor", "Datos Recientes"])
+    with tab1:
+        st.plotly_chart(px.bar(df, x='proveedor', y='paquetes', color='tipo_servicio', title="Paquetes por Proveedor"), use_container_width=True)
+    with tab2:
+        st.dataframe(df[['fecha', 'proveedor', 'master_lote', 'paquetes', 'tipo_servicio']].sort_values('fecha', ascending=False), use_container_width=True)
