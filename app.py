@@ -1,26 +1,32 @@
 import streamlit as st
 from streamlit_calendar import calendar
-from datetime import date
-import utils # Importamos nuestro archivo de lógica
+from datetime import date, timedelta
+import utils # Tu archivo de conexión
 import pandas as pd
 
-# --- CONFIGURACIÓN VISUAL ---
-st.set_page_config(page_title="Calendario Logístico", layout="wide", initial_sidebar_state="collapsed")
+# --- CONFIGURACIÓN VISUAL (CORREGIDA) ---
+# Cambiamos a "expanded" para que siempre veas el menú lateral al entrar
+st.set_page_config(page_title="Calendario Logístico", layout="wide", initial_sidebar_state="expanded")
 
-# CSS para ocultar elementos innecesarios y maximizar el calendario
+# CSS MEJORADO: Fuerza la altura y mejora la visibilidad
 st.markdown("""
     <style>
-        .block-container { padding-top: 1rem; padding-bottom: 0rem; padding-left: 1rem; padding-right: 1rem; }
+        /* Ajuste del contenedor principal */
+        .block-container { padding-top: 1rem; padding-bottom: 1rem; }
+        
+        /* Ocultar el menú hamburguesa de arriba a la derecha (opcional, para limpieza) */
         header { visibility: hidden; }
-        /* Estilo para el modal */
-        div[data-testid="stDialog"] { border-radius: 15px; }
+        
+        /* Estilo para los botones del calendario */
+        .fc-toolbar-title { font-size: 1.5rem !important; }
+        .fc-button { background-color: #3788d8 !important; border: none !important; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- MODAL DE INGRESO DE DATOS ---
+# --- FUNCIÓN: VENTANA EMERGENTE (MODAL) ---
 @st.dialog("📝 Gestionar Día")
 def modal_registro(fecha_seleccionada, datos=None):
-    st.write(f"Fecha: **{fecha_seleccionada}**")
+    st.write(f"Gestionando fecha: **{fecha_seleccionada}**")
     
     # Valores por defecto
     d_paq = datos['paquetes'] if datos else 0
@@ -30,47 +36,71 @@ def modal_registro(fecha_seleccionada, datos=None):
 
     with st.form("entry_form", clear_on_submit=True):
         c1, c2 = st.columns(2)
-        paq = c1.number_input("Paquetes", min_value=0, value=d_paq)
-        mast = c2.number_input("Másters", min_value=0, value=d_mast)
-        prov = st.text_input("Proveedor", value=d_prov)
-        com = st.text_area("Comentarios", value=d_com)
+        paq = c1.number_input("📦 Paquetes", min_value=0, value=d_paq, step=1)
+        mast = c2.number_input("🧱 Másters", min_value=0, value=d_mast, step=1)
+        prov = st.text_input("🚚 Proveedor", value=d_prov)
+        com = st.text_area("💬 Comentarios", value=d_com)
         
         if st.form_submit_button("Guardar Cambios", use_container_width=True):
             utils.guardar_registro(fecha_seleccionada, paq, mast, prov, com)
             st.rerun()
 
-# --- LÓGICA PRINCIPAL ---
-df = utils.cargar_datos()
+# --- BARRA LATERAL (AYUDA Y DATOS) ---
+with st.sidebar:
+    st.title("⚙️ Opciones")
+    st.info("👈 Para ir a los Gráficos, busca 'Dashboard' en este menú lateral.")
+    
+    st.write("---")
+    st.write("**¿Calendario Vacío?**")
+    if st.button("Generar Datos de Prueba 🎲"):
+        # Generamos 5 datos aleatorios para probar
+        fechas = [date.today() + timedelta(days=i) for i in range(-2, 3)]
+        import random
+        for f in fechas:
+            utils.guardar_registro(
+                f, 
+                random.randint(100, 500), 
+                random.randint(10, 50), 
+                random.choice(["DHL", "FedEx", "Ups"]), 
+                "Prueba automática"
+            )
+        st.success("¡Datos generados! Recargando...")
+        st.rerun()
 
-# 1. HEADER CON TOTALES GENERALES DEL MES VISIBLE (Aproximado al mes actual por defecto)
-# Nota: Para filtrar totales exactos por navegación de calendario se requiere JS avanzado, 
-# aquí usamos el mes actual o todos los datos para simplificar la vista "Total Global".
+# --- LÓGICA PRINCIPAL ---
+try:
+    df = utils.cargar_datos()
+except Exception as e:
+    st.error("Error conectando a utils. Asegúrate de que utils.py existe.")
+    df = pd.DataFrame()
+
+# CABECERA Y TOTALES VISIBLES
 hoy = date.today()
 col_head1, col_head2 = st.columns([3, 1])
 
 with col_head1:
-    st.markdown(f"### 📅 Sistema Logístico | {hoy.strftime('%B %Y')}")
+    st.markdown(f"## 📅 Logística | {hoy.strftime('%B %Y')}")
 
 with col_head2:
     if not df.empty:
-        # Mostramos totales globales simples en la cabecera
         tot_p = df['paquetes'].sum()
         tot_m = df['masters'].sum()
         st.markdown(f"""
-        <div style="text-align: right; font-size: 0.9rem; color: #555;">
-            <b>TOTAL GLOBAL:</b> 📦 {tot_p:,} | 🧱 {tot_m:,}
+        <div style="background-color:#f0f2f6; padding:10px; border-radius:10px; text-align:center;">
+            <b>TOTAL GLOBAL</b><br>
+            📦 {tot_p:,} | 🧱 {tot_m:,}
         </div>
         """, unsafe_allow_html=True)
 
-# 2. PREPARACIÓN DE EVENTOS (DATOS + TOTALES SEMANALES)
+# PREPARACIÓN DE EVENTOS
 events = []
 if not df.empty:
-    # A) Eventos Diarios (Los registros normales)
+    # 1. Eventos Diarios
     for _, row in df.iterrows():
         events.append({
             "title": f"📦{row['paquetes']} | 🧱{row['masters']}",
             "start": row['fecha_str'],
-            "color": "#3788d8", # Azul
+            "color": "#3788d8",
             "extendedProps": {
                 "type": "data",
                 "paquetes": row['paquetes'],
@@ -80,56 +110,47 @@ if not df.empty:
             }
         })
     
-    # B) Eventos de Resumen Semanal (INTEGRADOS VISUALMENTE)
-    # Agrupamos por semana y año para crear una "ficha" de total en el Domingo
+    # 2. Resumen Semanal (Totales al final de la semana)
     df['year_week'] = df['fecha'].dt.strftime('%Y-%U')
-    resumen_semanal = df.groupby('year_week')[['paquetes', 'masters']].sum()
+    resumen = df.groupby('year_week')[['paquetes', 'masters']].sum()
     
-    for year_week, row in resumen_semanal.iterrows():
-        # Encontrar el domingo de esa semana para poner la ficha ahí
-        anio = int(year_week.split('-')[0])
-        semana = int(year_week.split('-')[1])
-        # Calculamos fecha aproximada del domingo (fin de semana)
-        # Nota: Esto es una aproximación para visualización
-        sunday_str = df[df['year_week'] == year_week]['fecha'].max().strftime('%Y-%m-%d')
+    for year_week, row in resumen.iterrows():
+        # Aproximación visual para poner el total en el último día registrado de esa semana
+        last_date = df[df['year_week'] == year_week]['fecha'].max().strftime('%Y-%m-%d')
         
         events.append({
-            "title": f"∑ SEMANA: 📦{row['paquetes']} | 🧱{row['masters']}",
-            "start": sunday_str,
-            "color": "#2C3E50", # Gris oscuro / Negro para diferenciar
-            "display": "block", # Bloque solido
-            "textColor": "#ffffff",
-            "extendedProps": {"type": "summary"} # Marcamos que es un resumen
+            "title": f"∑ SEM: 📦{row['paquetes']} | 🧱{row['masters']}",
+            "start": last_date,
+            "color": "#262730", # Negro/Gris oscuro
+            "display": "block",
+            "textColor": "#FFF",
+            "extendedProps": {"type": "summary"}
         })
 
-# 3. CONFIGURACIÓN DEL CALENDARIO
+# CONFIGURACIÓN DEL CALENDARIO (AQUÍ ESTÁ EL ARREGLO VISUAL)
 cal_options = {
     "editable": False,
     "selectable": True,
     "headerToolbar": {
-        "left": "prev,next today",
+        "left": "today prev,next",
         "center": "title",
-        "right": "dayGridMonth"
+        "right": "dayGridMonth,listWeek" 
     },
     "initialView": "dayGridMonth",
-    "height": "85vh", # Ocupa el 85% de la altura de la pantalla
+    "height": "750px", # <--- ESTO ARREGLA EL PROBLEMA DE QUE SE VEA APLASTADO
     "locale": "es"
 }
 
 state = calendar(events=events, options=cal_options, key="main_cal")
 
-# 4. MANEJO DE CLICS
+# MANEJO DE CLICS
 if state.get("dateClick"):
-    # Clic en celda vacía
     date_clicked = state["dateClick"]["dateStr"]
     modal_registro(date_clicked)
 
 elif state.get("eventClick"):
-    # Clic en un evento
     event = state["eventClick"]["event"]
     props = event.get("extendedProps", {})
-    
-    # Solo abrimos modal si es un dato real, no un resumen semanal
     if props.get("type") == "data":
         fecha = event["start"].split("T")[0]
         modal_registro(fecha, props)
