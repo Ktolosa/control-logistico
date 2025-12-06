@@ -5,67 +5,78 @@ from datetime import date, datetime
 from streamlit_calendar import calendar
 import plotly.express as px
 import plotly.graph_objects as go
-import time
 
 # --- 1. CONFIGURACIÓN ---
 st.set_page_config(page_title="Nexus Logística", layout="wide", initial_sidebar_state="expanded")
 
-# --- 2. ESTILOS CSS (DISEÑO PROFESIONAL) ---
+# --- 2. ESTILOS CSS (BARRA FIJA, DELGADA Y UI MODERNA) ---
 st.markdown("""
     <style>
-    /* OCULTAR ELEMENTOS NATIVOS MOLESTOS */
-    [data-testid="stToolbar"] { visibility: hidden; }
-    [data-testid="stDecoration"] { display: none; }
-    [data-testid="stHeader"] { background: transparent; }
-    
-    /* FONDO GENERAL */
-    .stApp { background-color: #f4f6f9; font-family: 'Segoe UI', sans-serif; }
-    
-    /* LOGIN MINIMALISTA (Centrado perfecto sin adornos) */
-    .login-container {
-        margin-top: 15vh;
-        padding: 40px;
-        background: white;
-        border-radius: 12px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-        max-width: 400px;
-        margin-left: auto;
-        margin-right: auto;
-    }
-    
-    /* BARRA LATERAL PERSONALIZADA */
+    /* 1. FORZAR BARRA LATERAL FIJA Y DELGADA */
     [data-testid="stSidebar"] {
+        min-width: 240px !important;
+        max-width: 240px !important;
         background-color: #ffffff;
         border-right: 1px solid #e5e7eb;
     }
     
-    /* Tarjeta de Perfil en Sidebar */
-    .profile-card {
-        background-color: #f8fafc;
-        padding: 20px;
-        border-radius: 10px;
-        text-align: center;
+    /* OCULTAR EL BOTÓN DE CERRAR BARRA LATERAL (FIJA) */
+    [data-testid="collapsedControl"] {
+        display: none !important;
+    }
+    
+    /* 2. LIMPIEZA DE INTERFAZ */
+    [data-testid="stToolbar"] { visibility: hidden; }
+    [data-testid="stDecoration"] { display: none; }
+    [data-testid="stHeader"] { background: transparent; }
+    
+    /* 3. ESTILO DE NAVEGACIÓN */
+    .nav-header {
+        font-size: 0.75rem;
+        font-weight: 800;
+        color: #94a3b8;
+        margin-top: 20px;
+        margin-bottom: 10px;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+    }
+    
+    /* 4. TARJETAS DE PERFIL */
+    .profile-mini {
+        background: #f8fafc;
+        padding: 15px;
+        border-radius: 12px;
         border: 1px solid #e2e8f0;
-        margin-bottom: 20px;
+        text-align: center;
+        margin-bottom: 10px;
     }
-    .profile-avatar { font-size: 3rem; margin-bottom: 5px; }
-    .profile-name { font-weight: bold; color: #1e293b; font-size: 1.1rem; }
-    .profile-role { color: #64748b; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; }
+    .p-avatar { font-size: 2.5rem; margin-bottom: 5px; }
+    .p-name { font-weight: bold; font-size: 0.95rem; color: #1e293b; }
+    .p-role { font-size: 0.75rem; color: #3b82f6; font-weight: 700; text-transform: uppercase; }
+
+    /* 5. LOGIN */
+    .login-container {
+        margin-top: 10vh;
+        background: white; padding: 40px; border-radius: 15px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+        max-width: 380px; margin-left: auto; margin-right: auto;
+    }
     
-    /* Botones y Métricas */
-    div.stButton > button { border-radius: 6px; font-weight: 600; border: none; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-    
+    /* 6. KPIS DASHBOARD */
     .kpi-card {
-        background: white; padding: 20px; border-radius: 10px;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-        border-left: 5px solid #3b82f6;
+        background: white; padding: 20px; border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        border-left: 4px solid #2563eb;
     }
-    .kpi-val { font-size: 1.8rem; font-weight: bold; color: #0f172a; }
-    .kpi-lbl { color: #64748b; font-size: 0.9rem; }
+    .kpi-val { font-size: 1.6rem; font-weight: 800; color: #1e293b; }
+    .kpi-lbl { color: #64748b; font-size: 0.85rem; font-weight: 600; }
+    
+    /* Ajuste de botones */
+    div.stButton > button { border-radius: 6px; font-weight: 600; width: 100%; }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. DATOS Y CONEXIÓN ---
+# --- 3. CONEXIÓN Y DATOS ---
 AVATARS = {
     "avatar_1": "👨‍💼", "avatar_2": "👩‍💼", "avatar_3": "👷‍♂️", "avatar_4": "👷‍♀️",
     "avatar_5": "🤵", "avatar_6": "🕵️‍♀️", "avatar_7": "🦸‍♂️", "avatar_8": "👩‍💻",
@@ -83,7 +94,9 @@ def get_connection():
         database=st.secrets["mysql"]["database"]
     )
 
-# --- 4. FUNCIONES DE LOGICA ---
+# --- 4. FUNCIONES DE GESTIÓN (CRUD) ---
+
+# Auth
 def verificar_login(username, password):
     try:
         conn = get_connection(); cursor = conn.cursor(dictionary=True)
@@ -91,6 +104,21 @@ def verificar_login(username, password):
         user = cursor.fetchone(); conn.close()
         return user
     except: return None
+
+def actualizar_mi_perfil(uid, new_user, new_pass):
+    conn = get_connection(); cursor = conn.cursor()
+    if new_pass:
+        cursor.execute("UPDATE usuarios SET username=%s, password=%s WHERE id=%s", (new_user, new_pass, uid))
+    else:
+        cursor.execute("UPDATE usuarios SET username=%s WHERE id=%s", (new_user, uid))
+    conn.commit(); conn.close()
+    st.session_state['user_info']['username'] = new_user
+
+def actualizar_avatar(user_id, nuevo_avatar):
+    conn = get_connection(); cursor = conn.cursor()
+    cursor.execute("UPDATE usuarios SET avatar=%s WHERE id=%s", (nuevo_avatar, user_id))
+    conn.commit(); conn.close()
+    st.session_state['user_info']['avatar'] = nuevo_avatar
 
 def solicitar_reset_pass(username):
     conn = get_connection(); cursor = conn.cursor()
@@ -103,12 +131,6 @@ def solicitar_reset_pass(username):
         conn.close(); return "pendiente"
     conn.close(); return "no_user"
 
-def actualizar_avatar(user_id, nuevo_avatar):
-    conn = get_connection(); cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET avatar=%s WHERE id=%s", (nuevo_avatar, user_id))
-    conn.commit(); conn.close()
-    st.session_state['user_info']['avatar'] = nuevo_avatar
-
 # Admin
 def admin_crear_usuario(user, role):
     conn = get_connection(); cursor = conn.cursor()
@@ -120,7 +142,7 @@ def admin_crear_usuario(user, role):
 
 def admin_get_users():
     conn = get_connection()
-    df = pd.read_sql("SELECT id, username, rol, activo, created_at FROM usuarios", conn)
+    df = pd.read_sql("SELECT id, username, rol, activo, created_at, avatar FROM usuarios", conn)
     conn.close()
     return df
 
@@ -130,14 +152,20 @@ def admin_toggle_status(uid, current):
     cursor.execute("UPDATE usuarios SET activo=%s WHERE id=%s", (new, uid))
     conn.commit(); conn.close()
 
-def admin_restablecer_password(request_id, username):
+def admin_get_reqs():
+    conn = get_connection()
+    df = pd.read_sql("SELECT * FROM password_requests WHERE status='pendiente'", conn)
+    conn.close()
+    return df
+
+def admin_resolve_req(req_id, username):
     conn = get_connection(); cursor = conn.cursor()
     cursor.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (username,))
-    cursor.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (request_id,))
+    cursor.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (req_id,))
     conn.commit(); conn.close()
 
-# Data
-def cargar_datos_completos():
+# Datos Logísticos
+def cargar_datos():
     try:
         conn = get_connection()
         df = pd.read_sql("SELECT * FROM registro_logistica ORDER BY fecha DESC", conn)
@@ -146,7 +174,6 @@ def cargar_datos_completos():
             df['fecha'] = pd.to_datetime(df['fecha'], errors='coerce')
             df = df.dropna(subset=['fecha'])
             df['fecha_str'] = df['fecha'].dt.strftime('%Y-%m-%d')
-            # Columnas de análisis extra
             df['Año'] = df['fecha'].dt.year
             df['Mes'] = df['fecha'].dt.month_name()
             df['Semana'] = df['fecha'].dt.isocalendar().week
@@ -160,15 +187,15 @@ def guardar_registro(id_reg, fecha, prov, plat, serv, mast, paq, com):
     if id_reg is None:
         sql = "INSERT INTO registro_logistica (fecha, proveedor_logistico, plataforma_cliente, tipo_servicio, master_lote, paquetes, comentarios, created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)"
         cursor.execute(sql, (fecha, prov, plat, serv, mast, paq, com, user))
-        st.toast("✨ Guardado con éxito")
+        st.toast("✨ Guardado")
     else:
         sql = "UPDATE registro_logistica SET fecha=%s, proveedor_logistico=%s, plataforma_cliente=%s, tipo_servicio=%s, master_lote=%s, paquetes=%s, comentarios=%s WHERE id=%s"
         cursor.execute(sql, (fecha, prov, plat, serv, mast, paq, com, id_reg))
-        st.toast("✏️ Actualizado con éxito")
+        st.toast("✏️ Actualizado")
     conn.commit(); conn.close()
 
-# --- 5. MODAL DE REGISTRO ---
-@st.dialog("📝 Gestión de Carga")
+# --- 5. MODAL REGISTRO ---
+@st.dialog("📝 Operación")
 def modal_registro(datos=None):
     rol = st.session_state['user_info']['rol']
     disabled = True if rol == 'analista' else False
@@ -190,13 +217,13 @@ def modal_registro(datos=None):
     with st.form("frm"):
         c1, c2 = st.columns(2)
         with c1:
-            fecha_in = st.date_input("Fecha llegada", d_fecha, disabled=disabled)
+            fecha_in = st.date_input("Fecha", d_fecha, disabled=disabled)
             prov_in = st.selectbox("Proveedor", PROVEEDORES, index=PROVEEDORES.index(d_prov), disabled=disabled)
             plat_in = st.selectbox("Cliente", PLATAFORMAS, index=PLATAFORMAS.index(d_plat), disabled=disabled)
         with c2:
             serv_in = st.selectbox("Servicio", SERVICIOS, index=SERVICIOS.index(d_serv), disabled=disabled)
-            mast_in = st.text_input("Master ID", d_mast, disabled=disabled)
-            paq_in = st.number_input("Cantidad Paquetes", min_value=0, value=int(d_paq), disabled=disabled)
+            mast_in = st.text_input("Master / Lote", d_mast, disabled=disabled)
+            paq_in = st.number_input("Paquetes", min_value=0, value=int(d_paq), disabled=disabled)
         com_in = st.text_area("Notas", d_com, disabled=disabled, height=60)
         
         if not disabled:
@@ -209,98 +236,80 @@ def modal_registro(datos=None):
 # ==============================================================================
 
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
-if 'user_info' not in st.session_state: st.session_state['user_info'] = None
 
 if not st.session_state['logged_in']:
-    # --- LOGIN MINIMALISTA (SIN HEADER) ---
+    # Ocultar Sidebar en Login
     st.markdown("""<style>[data-testid="stSidebar"] { display: none; }</style>""", unsafe_allow_html=True)
     
-    # Contenedor centrado y limpio
-    col_l, col_m, col_r = st.columns([1, 1, 1])
-    with col_m:
-        st.markdown("<br><br><br>", unsafe_allow_html=True)
-        # Tabs sutiles
-        t1, t2 = st.tabs(["Ingresar", "Ayuda"])
+    # Login Limpio
+    st.markdown("""
+        <div class="login-container">
+            <h2 style="text-align:center; color:#1e293b;">Bienvenido</h2>
+            <p style="text-align:center; color:#64748b;">Inicia sesión en Nexus Logística</p>
+    """, unsafe_allow_html=True)
+    
+    u = st.text_input("Usuario", placeholder="Usuario", label_visibility="collapsed")
+    p = st.text_input("Contraseña", type="password", placeholder="Contraseña", label_visibility="collapsed")
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    if st.button("INGRESAR", type="primary", use_container_width=True):
+        user = verificar_login(u, p)
+        if user:
+            st.session_state['logged_in'] = True
+            st.session_state['user_info'] = user
+            st.rerun()
+        else: st.error("Datos incorrectos")
         
-        with t1:
-            u = st.text_input("Usuario", placeholder="Usuario", label_visibility="collapsed")
-            p = st.text_input("Contraseña", type="password", placeholder="Contraseña", label_visibility="collapsed")
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("INICIAR SESIÓN", type="primary", use_container_width=True):
-                user = verificar_login(u, p)
-                if user:
-                    st.session_state['logged_in'] = True
-                    st.session_state['user_info'] = user
-                    st.session_state['view'] = "calendar" # Default
-                    st.rerun()
-                else:
-                    st.error("Credenciales incorrectas")
-        
-        with t2:
-            ur = st.text_input("Ingresa tu usuario", key="reset")
-            if st.button("Solicitar restablecimiento"):
-                r = solicitar_reset_pass(ur)
-                if r == "ok": st.success("Solicitud enviada al Admin.")
-                else: st.warning("No se pudo procesar (Usuario no existe o ya pendiente).")
+    with st.expander("¿Olvidaste tu contraseña?"):
+        ur = st.text_input("Tu Usuario")
+        if st.button("Enviar Solicitud"):
+            r = solicitar_reset_pass(ur)
+            if r=="ok": st.success("Solicitud enviada.")
+            else: st.warning("No se pudo enviar.")
+    
+    st.markdown("</div>", unsafe_allow_html=True)
 
 else:
-    # --- APLICACIÓN COMPLETA ---
+    # --- APP COMPLETA ---
     u_info = st.session_state['user_info']
     rol = u_info['rol']
     
-    # --- BARRA LATERAL FIJA Y REDISEÑADA ---
+    # --- BARRA LATERAL FIJA Y DELGADA ---
     with st.sidebar:
-        # 1. TARJETA DE PERFIL
+        # Perfil Mini
         av_icon = AVATARS.get(u_info.get('avatar', 'avatar_1'), '👨‍💼')
         st.markdown(f"""
-        <div class="profile-card">
-            <div class="profile-avatar">{av_icon}</div>
-            <div class="profile-name">{u_info['username']}</div>
-            <div class="profile-role">{rol}</div>
+        <div class="profile-mini">
+            <div class="p-avatar">{av_icon}</div>
+            <div class="p-name">{u_info['username']}</div>
+            <div class="p-role">{rol}</div>
         </div>
         """, unsafe_allow_html=True)
         
-        with st.expander("⚙️ Configuración"):
-            st.caption("Cambiar Avatar")
-            cols = st.columns(5)
-            for i, (k, v) in enumerate(AVATARS.items()):
-                with cols[i%5]:
-                    if st.button(v, key=f"av_{k}"): actualizar_avatar(u_info['id'], k); st.rerun()
+        # MENÚ DE NAVEGACIÓN UNIFICADO (Aquí agregamos lo que pediste)
+        st.markdown("<div class='nav-header'>PRINCIPAL</div>", unsafe_allow_html=True)
         
-        st.divider()
+        # Opciones base
+        menu_options = ["📅 Operaciones", "📊 Análisis BI", "👤 Mi Perfil"]
         
-        # 2. MENÚ DE NAVEGACIÓN
-        st.caption("NAVEGACIÓN")
-        menu = st.radio("Ir a:", ["📅 Calendario", "📊 Análisis & Reportes"], label_visibility="collapsed")
-        
-        # 3. SECCIÓN ADMIN (SOLO VISIBLE PARA ADMIN)
+        # Opciones extra si es Admin (Se agregan DIRECTAMENTE al menú)
         if rol == 'admin':
-            st.divider()
-            st.caption("ADMINISTRACIÓN")
-            admin_opts = st.selectbox("Herramientas", ["Gestión Usuarios", "Solicitudes Clave"])
-            if admin_opts == "Gestión Usuarios":
-                st.session_state['view'] = "admin_users"
-            elif admin_opts == "Solicitudes Clave":
-                st.session_state['view'] = "admin_reqs"
-            
-            # Forzar vista si selecciona menú principal
-            if menu == "📅 Calendario": st.session_state['view'] = "calendar"
-            elif menu == "📊 Análisis & Reportes": st.session_state['view'] = "dashboard"
-        else:
-             if menu == "📅 Calendario": st.session_state['view'] = "calendar"
-             elif menu == "📊 Análisis & Reportes": st.session_state['view'] = "dashboard"
+            menu_options.insert(2, "👥 Gestión Usuarios")
+            menu_options.insert(3, "🔐 Solicitudes")
 
+        # Widget de Navegación
+        selection = st.radio("Navegación", menu_options, label_visibility="collapsed")
+        
         st.divider()
-        if st.button("Cerrar Sesión", use_container_width=True):
+        if st.button("Cerrar Sesión"):
             st.session_state['logged_in'] = False
             st.rerun()
 
-    # --- CONTENIDO PRINCIPAL ---
-    df = cargar_datos_completos()
-    vista = st.session_state['view']
+    # --- PÁGINAS ---
+    df = cargar_datos()
 
-    # >> VISTA 1: CALENDARIO
-    if vista == "calendar":
+    # 1. OPERACIONES (CALENDARIO)
+    if selection == "📅 Operaciones":
         c1, c2 = st.columns([5, 1])
         with c1: st.title("Calendario Operativo")
         with c2: 
@@ -310,131 +319,150 @@ else:
         evts = []
         if not df.empty:
             for _, r in df.iterrows():
-                color = "#64748b"
-                if "AliExpress" in r['plataforma_cliente']: color = "#f97316"
-                elif "Temu" in r['plataforma_cliente']: color = "#10b981"
-                elif "Shein" in r['plataforma_cliente']: color = "#0f172a"
+                c = "#64748b"
+                if "AliExpress" in r['plataforma_cliente']: c="#f97316"
+                elif "Temu" in r['plataforma_cliente']: c="#10b981"
+                elif "Shein" in r['plataforma_cliente']: c="#0f172a"
                 
-                # Props seguros
                 props = {
                     "id": int(r['id']), "fecha_str": str(r['fecha_str']),
                     "proveedor": str(r['proveedor_logistico']), "plataforma": str(r['plataforma_cliente']),
                     "servicio": str(r['tipo_servicio']), "master": str(r['master_lote']),
                     "paquetes": int(r['paquetes']), "comentarios": str(r['comentarios'])
                 }
-                evts.append({"title": f"{int(r['paquetes'])} - {r['proveedor_logistico']}", "start": r['fecha_str'], "backgroundColor": color, "borderColor": color, "extendedProps": props})
+                evts.append({"title": f"{int(r['paquetes'])} - {r['proveedor_logistico']}", "start": r['fecha_str'], "backgroundColor": c, "borderColor": c, "extendedProps": props})
 
         cal = calendar(events=evts, options={"initialView": "dayGridMonth", "height": "750px"}, key="cal_main")
         if cal.get("eventClick"): modal_registro(cal["eventClick"]["event"]["extendedProps"])
 
-    # >> VISTA 2: DASHBOARDS COMPLETOS
-    elif vista == "dashboard":
-        st.title("Centro de Análisis de Datos")
+    # 2. ANÁLISIS BI (DASHBOARD MEJORADO)
+    elif selection == "📊 Análisis BI":
+        st.title("Inteligencia de Datos")
         
-        # FILTROS PROFUNDOS
-        with st.expander("🔎 FILTROS AVANZADOS", expanded=True):
+        with st.expander("🔎 FILTRAR DATOS", expanded=True):
             f1, f2, f3, f4, f5 = st.columns(5)
             df_f = df.copy()
             if not df.empty:
-                yrs = sorted(df['Año'].unique())
-                provs = df['proveedor_logistico'].unique()
-                clis = df['plataforma_cliente'].unique()
-                servs = df['tipo_servicio'].unique()
-                weeks = sorted(df['Semana'].unique())
-                
-                sy = f1.multiselect("Año", yrs)
+                sy = f1.multiselect("Año", sorted(df['Año'].unique()))
                 sm = f2.multiselect("Mes", df['Mes'].unique())
-                sw = f3.multiselect("Semana", weeks)
-                sp = f4.multiselect("Proveedor", provs)
-                sc = f5.multiselect("Cliente", clis)
+                sp = f3.multiselect("Proveedor", df['proveedor_logistico'].unique())
+                sc = f4.multiselect("Cliente", df['plataforma_cliente'].unique())
+                ss = f5.multiselect("Servicio", df['tipo_servicio'].unique())
                 
                 if sy: df_f = df_f[df_f['Año'].isin(sy)]
                 if sm: df_f = df_f[df_f['Mes'].isin(sm)]
-                if sw: df_f = df_f[df_f['Semana'].isin(sw)]
                 if sp: df_f = df_f[df_f['proveedor_logistico'].isin(sp)]
                 if sc: df_f = df_f[df_f['plataforma_cliente'].isin(sc)]
-        
-        if df_f.empty: st.warning("No hay datos coincidentes.")
+                if ss: df_f = df_f[df_f['tipo_servicio'].isin(ss)]
+
+        if df_f.empty: st.warning("Sin datos.")
         else:
             # KPIS
             k1, k2, k3, k4 = st.columns(4)
             k1.markdown(f"<div class='kpi-card'><div class='kpi-val'>{df_f['paquetes'].sum():,}</div><div class='kpi-lbl'>Total Paquetes</div></div>", unsafe_allow_html=True)
-            k2.markdown(f"<div class='kpi-card'><div class='kpi-val'>{len(df_f)}</div><div class='kpi-lbl'>Total Viajes</div></div>", unsafe_allow_html=True)
-            try: top = df_f.groupby('plataforma_cliente')['paquetes'].sum().idxmax()
-            except: top = "-"
-            k3.markdown(f"<div class='kpi-card'><div class='kpi-val'>{top}</div><div class='kpi-lbl'>Cliente Top</div></div>", unsafe_allow_html=True)
+            k2.markdown(f"<div class='kpi-card'><div class='kpi-val'>{len(df_f)}</div><div class='kpi-lbl'>Total Lotes</div></div>", unsafe_allow_html=True)
+            try: top = df_f.groupby('proveedor_logistico')['paquetes'].sum().idxmax()
+            except: top="-"
+            k3.markdown(f"<div class='kpi-card'><div class='kpi-val'>{top}</div><div class='kpi-lbl'>Top Proveedor</div></div>", unsafe_allow_html=True)
             k4.markdown(f"<div class='kpi-card'><div class='kpi-val'>{int(df_f['paquetes'].mean())}</div><div class='kpi-lbl'>Promedio</div></div>", unsafe_allow_html=True)
             
-            st.divider()
+            st.markdown("<br>", unsafe_allow_html=True)
             
-            # PESTAÑAS DE ANÁLISIS
-            t1, t2, t3, t4 = st.tabs(["📈 Evolución", "🍰 Distribución", "🔥 Intensidad", "📥 Datos & Exportar"])
+            # PESTAÑAS DE ANÁLISIS AVANZADO
+            t1, t2, t3, t4 = st.tabs(["📈 Evolución & Comparativa", "📦 Distribución (Boxplot)", "🔥 Heatmap", "📋 Datos Detallados"])
             
             with t1:
-                # Grafico Linea Tiempo
-                g_df = df_f.groupby('fecha')['paquetes'].sum().reset_index()
-                fig = px.line(g_df, x='fecha', y='paquetes', markers=True, title="Tendencia de Volumen Diario")
-                fig.update_traces(line_color='#2563eb', line_width=3)
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with t2:
                 c_a, c_b = st.columns(2)
-                with c_a: 
-                    # Sunburst
-                    fig = px.sunburst(df_f, path=['plataforma_cliente', 'proveedor_logistico'], values='paquetes', title="Distribución Jerárquica")
-                    st.plotly_chart(fig, use_container_width=True)
+                with c_a:
+                    # Linea temporal
+                    g_line = df_f.groupby('fecha')['paquetes'].sum().reset_index()
+                    st.plotly_chart(px.line(g_line, x='fecha', y='paquetes', title="Tendencia de Volumen", markers=True), use_container_width=True)
                 with c_b:
-                    # Barras
-                    fig = px.bar(df_f, x='proveedor_logistico', y='paquetes', color='tipo_servicio', title="Volumen por Proveedor y Servicio")
-                    st.plotly_chart(fig, use_container_width=True)
-            
-            with t3:
-                # Heatmap
-                fig = px.density_heatmap(df_f, x='Semana', y='DiaSemana', z='paquetes', color_continuous_scale="Viridis", title="Mapa de Calor (Semana vs Día)")
-                st.plotly_chart(fig, use_container_width=True)
-                
-            with t4:
-                st.subheader("Exportación de Datos")
-                cols = st.multiselect("Columnas a exportar", df_f.columns.tolist(), default=['fecha', 'proveedor_logistico', 'plataforma_cliente', 'paquetes', 'master_lote'])
-                if cols:
-                    df_exp = df_f[cols]
-                    csv = df_exp.to_csv(index=False).encode('utf-8')
-                    st.download_button("📥 DESCARGAR EXCEL/CSV", csv, "reporte_logistica.csv", "text/csv", type="primary")
-                st.dataframe(df_f, use_container_width=True)
+                    # Sunburst
+                    st.plotly_chart(px.sunburst(df_f, path=['plataforma_cliente', 'proveedor_logistico'], values='paquetes', title="Jerarquía de Carga"), use_container_width=True)
 
-    # >> VISTAS ADMIN
-    elif vista == "admin_users":
+            with t2:
+                # Boxplot para ver variabilidad de carga
+                st.markdown("#### Análisis de Variabilidad (Boxplot)")
+                fig_box = px.box(df_f, x='proveedor_logistico', y='paquetes', color='proveedor_logistico', title="Distribución de Paquetes por Lote (Rango de Carga)")
+                st.plotly_chart(fig_box, use_container_width=True)
+                
+                # Barras apiladas
+                st.plotly_chart(px.bar(df_f, x='proveedor_logistico', y='paquetes', color='tipo_servicio', title="Volumen por Servicio"), use_container_width=True)
+
+            with t3:
+                # Heatmap Día/Semana
+                st.plotly_chart(px.density_heatmap(df_f, x='Semana', y='DiaSemana', z='paquetes', color_continuous_scale="Viridis", title="Mapa de Calor de Operaciones"), use_container_width=True)
+
+            with t4:
+                # Tabla Pivote y Export
+                st.subheader("Datos Tabulares")
+                st.dataframe(df_f, use_container_width=True)
+                csv = df_f.to_csv(index=False).encode('utf-8')
+                st.download_button("📥 Descargar CSV", csv, "data_export.csv", "text/csv")
+
+    # 3. GESTIÓN USUARIOS (SOLO ADMIN)
+    elif selection == "👥 Gestión Usuarios":
         st.title("Gestión de Usuarios")
-        t_crear, t_ver = st.tabs(["Crear Usuario", "Ver Todos"])
         
-        with t_crear:
-            with st.form("new_u"):
-                nu = st.text_input("Usuario")
+        t_create, t_list = st.tabs(["Crear Nuevo", "Lista de Usuarios"])
+        
+        with t_create:
+            with st.form("new_user_f"):
+                nu = st.text_input("Nombre de Usuario")
                 nr = st.selectbox("Rol", ["user", "analista", "admin"])
-                if st.form_submit_button("Crear Usuario (Clave: 123456)"):
-                    if admin_crear_usuario(nu, nr): st.success("Creado")
-                    else: st.error("Error")
+                st.caption("Contraseña por defecto: 123456")
+                if st.form_submit_button("Crear Usuario"):
+                    if admin_crear_usuario(nu, nr): st.success("Usuario creado.")
+                    else: st.error("Error al crear.")
         
-        with t_ver:
+        with t_list:
             df_u = admin_get_users()
             st.dataframe(df_u, use_container_width=True)
             
-            c_u1, c_u2 = st.columns(2)
-            uid = c_u1.selectbox("Seleccionar Usuario", df_u['id'].tolist())
-            current = df_u[df_u['id']==uid]['activo'].values[0]
-            lbl = "Desactivar" if current==1 else "Activar"
-            if c_u2.button(f"{lbl} Usuario"):
-                admin_toggle_status(uid, current); st.rerun()
+            c_act1, c_act2 = st.columns([3, 1])
+            uid_sel = c_act1.selectbox("Seleccionar Usuario ID", df_u['id'].tolist())
+            curr_stat = df_u[df_u['id']==uid_sel]['activo'].values[0]
+            lbl = "🔴 Desactivar" if curr_stat == 1 else "🟢 Activar"
+            
+            if c_act2.button(lbl):
+                admin_toggle_status(uid_sel, curr_stat)
+                st.rerun()
 
-    elif vista == "admin_reqs":
-        st.title("Solicitudes de Contraseña")
-        conn = get_connection(); reqs = pd.read_sql("SELECT * FROM password_requests WHERE status='pendiente'", conn); conn.close()
+    # 4. SOLICITUDES (SOLO ADMIN)
+    elif selection == "🔐 Solicitudes":
+        st.title("Restablecimiento de Contraseñas")
+        reqs = admin_get_reqs()
         
         if reqs.empty: st.info("No hay solicitudes pendientes.")
         else:
             for _, r in reqs.iterrows():
-                c_r1, c_r2 = st.columns([3, 1])
-                c_r1.warning(f"Usuario **{r['username']}** solicitó resetear su clave.")
-                if c_r2.button(f"Resetear a '123456'", key=f"rs_{r['id']}"):
-                    admin_restablecer_password(r['id'], r['username'])
-                    st.success("Hecho"); st.rerun()
+                with st.expander(f"Solicitud de: {r['username']}", expanded=True):
+                    if st.button(f"Restablecer Clave a '123456'", key=f"req_{r['id']}"):
+                        admin_resolve_req(r['id'], r['username'])
+                        st.success("Contraseña restablecida.")
+                        st.rerun()
+
+    # 5. MI PERFIL
+    elif selection == "👤 Mi Perfil":
+        st.title("Mi Cuenta")
+        
+        c_prof1, c_prof2 = st.columns([1, 2])
+        
+        with c_prof1:
+            st.markdown("#### Avatar")
+            cols = st.columns(3)
+            for i, (k, v) in enumerate(AVATARS.items()):
+                with cols[i%3]:
+                    if st.button(v, key=f"prof_av_{k}"): actualizar_avatar(u_info['id'], k); st.rerun()
+        
+        with c_prof2:
+            st.markdown("#### Credenciales")
+            with st.form("my_creds"):
+                new_u = st.text_input("Usuario", value=u_info['username'])
+                new_p = st.text_input("Nueva Contraseña (Opcional)", type="password")
+                if st.form_submit_button("Actualizar Datos"):
+                    actualizar_mi_perfil(u_info['id'], new_u, new_p)
+                    st.success("Perfil actualizado. Por favor inicia sesión nuevamente.")
+                    st.session_state['logged_in'] = False
+                    st.rerun()
