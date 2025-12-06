@@ -10,60 +10,65 @@ import time
 # --- 1. CONFIGURACIÓN ---
 st.set_page_config(page_title="Nexus Logística", layout="wide", initial_sidebar_state="expanded")
 
-# --- 2. ESTILOS CSS (CORRECCIONES VISUALES ESPECÍFICAS) ---
+# --- 2. ESTILOS CSS (AQUÍ ESTÁ LA MAGIA PARA CORREGIR TUS ERRORES) ---
 st.markdown("""
     <style>
-    /* 1. OCULTAR BARRA SUPERIOR Y DECORACIONES */
+    /* --- A. LIMPIEZA DE INTERFAZ GENERAL --- */
     [data-testid="stToolbar"] { visibility: hidden !important; }
     [data-testid="stDecoration"] { display: none !important; }
     [data-testid="stHeader"] { visibility: hidden !important; }
     
-    /* 2. BARRA LATERAL FIJA Y LIMPIA */
-    /* Ocultar la navegación por defecto de Streamlit (App, Dashboard) */
-    [data-testid="stSidebarNav"] { display: none !important; }
+    /* --- B. BARRA LATERAL (SIDEBAR) SIEMPRE VISIBLE --- */
     
-    /* Ocultar la flecha para colapsar la barra lateral (Hacerla fija) */
+    /* 1. Ocultar la flecha que cierra la barra (Para que nunca se oculte) */
     [data-testid="collapsedControl"] { display: none !important; }
     
-    /* Ajuste de ancho y borde de la barra lateral */
+    /* 2. Fijar el ancho y el estilo de la barra */
     [data-testid="stSidebar"] {
+        min-width: 280px !important;
+        max-width: 280px !important;
         background-color: #ffffff;
         border-right: 1px solid #e5e7eb;
-        min-width: 260px !important;
-        max-width: 260px !important;
     }
-
-    /* 3. FONDO GENERAL */
-    .stApp { background-color: #f4f6f9; font-family: 'Segoe UI', sans-serif; }
     
-    /* 4. LOGIN (SOLO INPUTS Y BOTÓN) */
+    /* 3. Ocultar navegación automática de Streamlit si apareciera */
+    [data-testid="stSidebarNav"] { display: none !important; }
+
+    /* --- C. LOGIN LIMPIO (SIN RECUADROS FANTASMAS) --- */
     .login-container {
-        margin-top: 15vh;
+        margin-top: 10vh;
         padding: 40px;
         background: white;
         border-radius: 12px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-        max-width: 380px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+        width: 100%;
+        max-width: 400px;  /* Ancho fijo para que no se estire */
         margin-left: auto;
         margin-right: auto;
         text-align: center;
+        /* Esto evita que quede espacio en blanco extra si borraste texto */
+        height: auto !important; 
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
     }
     
-    /* 5. TARJETAS PERFIL */
+    /* Fondo de la app */
+    .stApp { background-color: #f4f6f9; font-family: 'Segoe UI', sans-serif; }
+    
+    /* --- D. ESTILOS DE TARJETAS Y KPI --- */
     .profile-card {
         background-color: #f8fafc;
-        padding: 20px;
+        padding: 15px;
         border-radius: 10px;
         text-align: center;
         border: 1px solid #e2e8f0;
         margin-bottom: 20px;
-        margin-top: -50px; /* Subir un poco el perfil para llenar el espacio vacío */
     }
-    .profile-avatar { font-size: 3rem; margin-bottom: 5px; }
-    .profile-name { font-weight: bold; color: #1e293b; font-size: 1.1rem; }
-    .profile-role { color: #64748b; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; }
-    
-    /* Estilos Generales Dashboard */
+    .profile-avatar { font-size: 2.5rem; margin-bottom: 5px; }
+    .profile-name { font-weight: bold; color: #1e293b; font-size: 1rem; }
+    .profile-role { color: #64748b; font-size: 0.8rem; text-transform: uppercase; }
+
     .kpi-card {
         background: white; padding: 20px; border-radius: 10px;
         box-shadow: 0 2px 5px rgba(0,0,0,0.05);
@@ -72,8 +77,13 @@ st.markdown("""
     .kpi-val { font-size: 1.8rem; font-weight: bold; color: #0f172a; }
     .kpi-lbl { color: #64748b; font-size: 0.9rem; }
     
-    /* Botones */
+    /* Botones más estéticos */
     div.stButton > button { border-radius: 6px; font-weight: 600; border: none; width: 100%; }
+    
+    /* Ajuste para inputs del login */
+    div[data-testid="stTextInput"] input {
+        padding: 10px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -87,6 +97,8 @@ PROVEEDORES = ["Mail Americas", "APG", "IMILE", "GLC"]
 PLATAFORMAS = ["AliExpress", "Shein", "Temu"]
 SERVICIOS = ["Aduana Propia", "Solo Ultima Milla"]
 
+# --- FUNCIÓN SEGURA DE CONEXIÓN ---
+# Nota: Si falla la conexión, la app no crashurará inmediatamente gracias al try/except en el uso
 def get_connection():
     return mysql.connector.connect(
         host=st.secrets["mysql"]["host"],
@@ -105,48 +117,59 @@ def verificar_login(username, password):
     except: return None
 
 def solicitar_reset_pass(username):
-    conn = get_connection(); cursor = conn.cursor()
-    cursor.execute("SELECT id FROM usuarios WHERE username=%s", (username,))
-    if cursor.fetchone():
-        cursor.execute("SELECT id FROM password_requests WHERE username=%s AND status='pendiente'", (username,))
-        if not cursor.fetchone():
-            cursor.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,))
-            conn.commit(); conn.close(); return "ok"
-        conn.close(); return "pendiente"
-    conn.close(); return "no_user"
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("SELECT id FROM usuarios WHERE username=%s", (username,))
+        if cursor.fetchone():
+            cursor.execute("SELECT id FROM password_requests WHERE username=%s AND status='pendiente'", (username,))
+            if not cursor.fetchone():
+                cursor.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,))
+                conn.commit(); conn.close(); return "ok"
+            conn.close(); return "pendiente"
+        conn.close(); return "no_user"
+    except: return "error"
 
 def actualizar_avatar(user_id, nuevo_avatar):
-    conn = get_connection(); cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET avatar=%s WHERE id=%s", (nuevo_avatar, user_id))
-    conn.commit(); conn.close()
-    st.session_state['user_info']['avatar'] = nuevo_avatar
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("UPDATE usuarios SET avatar=%s WHERE id=%s", (nuevo_avatar, user_id))
+        conn.commit(); conn.close()
+        st.session_state['user_info']['avatar'] = nuevo_avatar
+    except: pass
 
 # Admin
 def admin_crear_usuario(user, role):
-    conn = get_connection(); cursor = conn.cursor()
     try:
+        conn = get_connection(); cursor = conn.cursor()
         cursor.execute("INSERT INTO usuarios (username, password, rol, avatar) VALUES (%s, '123456', %s, 'avatar_1')", (user, role))
-        conn.commit(); return True
-    except: return False
-    finally: conn.close()
+        conn.commit(); conn.close(); return True
+    except: 
+        if 'conn' in locals() and conn.is_connected(): conn.close()
+        return False
 
 def admin_get_users():
-    conn = get_connection()
-    df = pd.read_sql("SELECT id, username, rol, activo, created_at FROM usuarios", conn)
-    conn.close()
-    return df
+    try:
+        conn = get_connection()
+        df = pd.read_sql("SELECT id, username, rol, activo, created_at FROM usuarios", conn)
+        conn.close()
+        return df
+    except: return pd.DataFrame()
 
 def admin_toggle_status(uid, current):
-    new = 0 if current == 1 else 1
-    conn = get_connection(); cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET activo=%s WHERE id=%s", (new, uid))
-    conn.commit(); conn.close()
+    try:
+        new = 0 if current == 1 else 1
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("UPDATE usuarios SET activo=%s WHERE id=%s", (new, uid))
+        conn.commit(); conn.close()
+    except: pass
 
 def admin_restablecer_password(request_id, username):
-    conn = get_connection(); cursor = conn.cursor()
-    cursor.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (username,))
-    cursor.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (request_id,))
-    conn.commit(); conn.close()
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        cursor.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (username,))
+        cursor.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (request_id,))
+        conn.commit(); conn.close()
+    except: pass
 
 # Data
 def cargar_datos_completos():
@@ -166,17 +189,19 @@ def cargar_datos_completos():
     except: return pd.DataFrame()
 
 def guardar_registro(id_reg, fecha, prov, plat, serv, mast, paq, com):
-    conn = get_connection(); cursor = conn.cursor()
-    user = st.session_state['user_info']['username']
-    if id_reg is None:
-        sql = "INSERT INTO registro_logistica (fecha, proveedor_logistico, plataforma_cliente, tipo_servicio, master_lote, paquetes, comentarios, created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)"
-        cursor.execute(sql, (fecha, prov, plat, serv, mast, paq, com, user))
-        st.toast("✨ Guardado con éxito")
-    else:
-        sql = "UPDATE registro_logistica SET fecha=%s, proveedor_logistico=%s, plataforma_cliente=%s, tipo_servicio=%s, master_lote=%s, paquetes=%s, comentarios=%s WHERE id=%s"
-        cursor.execute(sql, (fecha, prov, plat, serv, mast, paq, com, id_reg))
-        st.toast("✏️ Actualizado con éxito")
-    conn.commit(); conn.close()
+    try:
+        conn = get_connection(); cursor = conn.cursor()
+        user = st.session_state['user_info']['username']
+        if id_reg is None:
+            sql = "INSERT INTO registro_logistica (fecha, proveedor_logistico, plataforma_cliente, tipo_servicio, master_lote, paquetes, comentarios, created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)"
+            cursor.execute(sql, (fecha, prov, plat, serv, mast, paq, com, user))
+            st.toast("✨ Guardado con éxito")
+        else:
+            sql = "UPDATE registro_logistica SET fecha=%s, proveedor_logistico=%s, plataforma_cliente=%s, tipo_servicio=%s, master_lote=%s, paquetes=%s, comentarios=%s WHERE id=%s"
+            cursor.execute(sql, (fecha, prov, plat, serv, mast, paq, com, id_reg))
+            st.toast("✏️ Actualizado con éxito")
+        conn.commit(); conn.close()
+    except: st.error("Error al guardar en BD")
 
 # --- 5. MODAL DE REGISTRO ---
 @st.dialog("📝 Gestión de Carga")
@@ -223,19 +248,23 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_info' not in st.session_state: st.session_state['user_info'] = None
 
 if not st.session_state['logged_in']:
-    # --- LOGIN MINIMALISTA ---
-    st.markdown("""<style>[data-testid="stSidebar"] { display: none; }</style>""", unsafe_allow_html=True)
+    # --- LOGIN MINIMALISTA Y LIMPIO ---
+    # Forzamos ocultar la sidebar en el login
+    st.markdown("""<style>[data-testid="stSidebar"] { display: none !important; }</style>""", unsafe_allow_html=True)
     
-    # Contenedor Blanco Limpio
+    # Inicia el contenedor blanco compacto
     st.markdown("<div class='login-container'>", unsafe_allow_html=True)
     
-    # Inputs directos (sin titulos grandes)
+    st.markdown("<h2 style='color:#333; margin-bottom:20px;'>Iniciar Sesión</h2>", unsafe_allow_html=True)
+    
+    # Los inputs de Streamlit se renderizan dentro del flujo normal, 
+    # visualmente caerán dentro del div 'login-container' debido al HTML wrapper
     u = st.text_input("Usuario", placeholder="Usuario", label_visibility="collapsed")
     p = st.text_input("Contraseña", type="password", placeholder="Contraseña", label_visibility="collapsed")
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    if st.button("INICIAR SESIÓN", type="primary", use_container_width=True):
+    if st.button("INGRESAR", type="primary", use_container_width=True):
         user = verificar_login(u, p)
         if user:
             st.session_state['logged_in'] = True
@@ -244,21 +273,23 @@ if not st.session_state['logged_in']:
         else: st.error("Datos incorrectos")
         
     st.markdown("<br>", unsafe_allow_html=True)
-    with st.expander("¿Olvidaste tu contraseña?"):
+    with st.expander("Recuperar contraseña"):
         ur = st.text_input("Tu Usuario")
-        if st.button("Enviar Solicitud"):
+        if st.button("Solicitar Reset"):
             r = solicitar_reset_pass(ur)
-            if r=="ok": st.success("Enviado al Admin.")
-            else: st.warning("Error.")
+            if r=="ok": st.success("Solicitud enviada.")
+            elif r=="pendiente": st.info("Ya tienes una solicitud pendiente.")
+            else: st.warning("Usuario no encontrado.")
             
+    # Cierre del contenedor blanco
     st.markdown("</div>", unsafe_allow_html=True)
 
 else:
-    # --- APP COMPLETA ---
+    # --- APP COMPLETA (DASHBOARD) ---
     u_info = st.session_state['user_info']
     rol = u_info['rol']
     
-    # --- BARRA LATERAL FIJA Y LIMPIA ---
+    # --- BARRA LATERAL FIJA ---
     with st.sidebar:
         # Perfil
         av_icon = AVATARS.get(u_info.get('avatar', 'avatar_1'), '👨‍💼')
@@ -270,7 +301,7 @@ else:
         </div>
         """, unsafe_allow_html=True)
         
-        with st.expander("⚙️ Mi Avatar"):
+        with st.expander("Cambiar Avatar"):
             cols = st.columns(5)
             for i, (k, v) in enumerate(AVATARS.items()):
                 with cols[i%5]:
@@ -278,30 +309,35 @@ else:
         
         st.markdown("---")
         
-        # MENÚ
-        menu = st.radio("Ir a:", ["📅 Calendario", "📊 Análisis & Reportes"], label_visibility="collapsed")
+        # MENÚ ESTILO BOTONES ESTÁTICOS
+        # Usamos radio button pero visualmente parecen opciones de menú
+        menu = st.radio("Navegación", ["📅 Calendario", "📊 Análisis & Reportes"], label_visibility="collapsed")
         
-        # ADMIN DIRECTO
         if rol == 'admin':
             st.divider()
             st.caption("ADMINISTRACIÓN")
-            admin_opts = st.selectbox("Gestión", ["Usuarios", "Solicitudes"])
-            if admin_opts == "Usuarios": st.session_state['view'] = "admin_users"
-            elif admin_opts == "Solicitudes": st.session_state['view'] = "admin_reqs"
+            admin_opts = st.radio("Gestión", ["👥 Usuarios", "🔑 Solicitudes"], label_visibility="collapsed")
             
-            # Reset view si cambia el menu principal
-            if menu == "📅 Calendario": st.session_state['view'] = "calendar"
-            elif menu == "📊 Análisis & Reportes": st.session_state['view'] = "dashboard"
+            if admin_opts == "👥 Usuarios": st.session_state['view'] = "admin_users"
+            elif admin_opts == "🔑 Solicitudes": st.session_state['view'] = "admin_reqs"
+            
+            # Prioridad de vista
+            # Si cambiamos el menu principal, reseteamos la vista admin
+            if 'last_menu' not in st.session_state or st.session_state['last_menu'] != menu:
+                 st.session_state['view'] = "calendar" if menu == "📅 Calendario" else "dashboard"
+            
+            st.session_state['last_menu'] = menu
+
         else:
              if menu == "📅 Calendario": st.session_state['view'] = "calendar"
              elif menu == "📊 Análisis & Reportes": st.session_state['view'] = "dashboard"
 
-        st.divider()
+        st.markdown("---")
         if st.button("Cerrar Sesión", use_container_width=True):
             st.session_state['logged_in'] = False
             st.rerun()
 
-    # --- CONTENIDO ---
+    # --- CONTENIDO CENTRAL ---
     df = cargar_datos_completos()
     vista = st.session_state.get('view', 'calendar')
 
@@ -398,16 +434,19 @@ else:
             df_u = admin_get_users()
             st.dataframe(df_u, use_container_width=True)
             c1, c2 = st.columns(2)
-            uid = c1.selectbox("ID Usuario", df_u['id'].tolist())
-            curr = df_u[df_u['id']==uid]['activo'].values[0]
-            lbl = "Desactivar" if curr==1 else "Activar"
-            if c2.button(lbl): admin_toggle_status(uid, curr); st.rerun()
+            uid = c1.selectbox("ID Usuario", df_u['id'].tolist()) if not df_u.empty else None
+            if uid:
+                curr = df_u[df_u['id']==uid]['activo'].values[0]
+                lbl = "Desactivar" if curr==1 else "Activar"
+                if c2.button(lbl): admin_toggle_status(uid, curr); st.rerun()
 
     elif vista == "admin_reqs":
         st.title("Solicitudes")
-        reqs = pd.read_sql("SELECT * FROM password_requests WHERE status='pendiente'", get_connection())
-        if reqs.empty: st.info("Sin solicitudes.")
-        else:
-            for _, r in reqs.iterrows():
-                if st.button(f"Reset {r['username']}", key=r['id']):
-                    admin_restablecer_password(r['id'], r['username']); st.rerun()
+        try:
+            reqs = pd.read_sql("SELECT * FROM password_requests WHERE status='pendiente'", get_connection())
+            if reqs.empty: st.info("Sin solicitudes.")
+            else:
+                for _, r in reqs.iterrows():
+                    if st.button(f"Reset {r['username']}", key=r['id']):
+                        admin_restablecer_password(r['id'], r['username']); st.rerun()
+        except: st.error("Error BD")
