@@ -12,10 +12,10 @@ st.set_page_config(page_title="Nexus Logística", layout="wide", initial_sidebar
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_info' not in st.session_state: st.session_state['user_info'] = None
 
-# --- 2. GESTIÓN DE CSS (DISEÑO SLIM / DOCK) ---
+# --- 2. GESTIÓN DE CSS (AJUSTES PRECISOS) ---
 
-# Ancho de la barra lateral (Muy delgado, solo para iconos)
-SIDEBAR_WIDTH = "90px"
+# ANCHO DE BARRA DEFINIDO (Ultra delgado)
+SIDEBAR_WIDTH = "70px"
 
 base_css = """
 <style>
@@ -32,32 +32,44 @@ base_css = """
 login_css = """
 <style>
     section[data-testid="stSidebar"] { display: none !important; }
+    
+    /* Centrado del Login */
     .main .block-container {
         max-width: 400px;
-        padding-top: 10vh;
+        padding-top: 15vh;
         margin: 0 auto;
     }
-    div[data-testid="stTextInput"] input {
-        border: 1px solid #ddd; padding: 12px; border-radius: 8px;
-    }
-    div.stButton > button { width: 100%; border-radius: 8px; font-weight: 600; padding: 10px; }
     
-    /* Contenedor Login */
-    .login-box {
-        background: white; padding: 40px; border-radius: 15px;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.05); text-align: center;
+    /* Inputs minimalistas sin recuadro de fondo externo */
+    div[data-testid="stTextInput"] input {
+        border: 1px solid #cbd5e1; 
+        padding: 12px; 
+        border-radius: 8px;
+        background-color: white;
     }
+    div[data-testid="stTextInput"] input:focus {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+    
+    /* Botón Login */
+    div.stButton > button { 
+        width: 100%; 
+        border-radius: 8px; 
+        font-weight: 600; 
+        padding: 12px; 
+        background-color: #3b82f6;
+        border: none;
+    }
+    div.stButton > button:hover { background-color: #2563eb; }
 </style>
 """
 
 dashboard_css = f"""
 <style>
-    /* --- 1. BARRA LATERAL LIMPIA (SIN SLIDER NI FLECHA) --- */
-    
-    /* Ocultar flecha de colapso */
+    /* --- 1. BARRA LATERAL ULTRA DELGADA --- */
     [data-testid="collapsedControl"] {{ display: none !important; }}
     
-    /* Configuración del contenedor de la barra */
     [data-testid="stSidebar"] {{
         display: block !important;
         width: {SIDEBAR_WIDTH} !important;
@@ -68,81 +80,72 @@ dashboard_css = f"""
         position: fixed !important;
         top: 0 !important; left: 0 !important; bottom: 0 !important;
         z-index: 99999;
-        background-color: #1e293b; /* Fondo oscuro elegante para iconos */
+        background-color: #1e293b;
         border-right: 1px solid #334155;
+        padding-top: 20px;
     }}
     
-    /* Ocultar SLIDER (Barra de desplazamiento) */
+    /* Eliminar scroll de la barra */
     [data-testid="stSidebar"] > div {{
-        overflow: hidden !important; /* Adiós scrollbar */
-        padding-top: 20px;
+        overflow: hidden !important;
+        width: {SIDEBAR_WIDTH} !important;
         display: flex;
         flex-direction: column;
-        align-items: center; /* Centrar todo horizontalmente */
+        align-items: center;
     }}
 
-    /* --- 2. CONTENIDO PRINCIPAL --- */
+    /* --- 2. CONTENIDO PRINCIPAL (CORRECCIÓN DE CORTE) --- */
+    /* Empujamos el contenido usando MARGIN-LEFT para que respete el espacio de la barra */
     .main .block-container {{
-        margin-left: {SIDEBAR_WIDTH} !important; 
+        margin-left: {SIDEBAR_WIDTH} !important;
         width: calc(100% - {SIDEBAR_WIDTH}) !important;
-        padding: 2rem 3rem !important;
+        padding-top: 2rem !important;
+        padding-left: 2rem !important; /* Espacio extra interno */
+        padding-right: 2rem !important;
         max-width: 100% !important;
     }}
 
-    /* --- 3. BOTONES DE NAVEGACIÓN (SOLO ICONOS) --- */
+    /* --- 3. BOTONES ICONO --- */
+    /* Ocultar radio buttons nativos */
+    [data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {{ display: none !important; }}
     
-    /* Ocultar círculos de radio */
-    [data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {{
-        display: none !important;
-    }}
-    
-    /* Estilo del Botón Icono */
+    /* Estilo Icono */
     [data-testid="stSidebar"] div[role="radiogroup"] label {{
         display: flex !important;
         justify-content: center !important;
         align-items: center !important;
-        width: 50px !important;
-        height: 50px !important;
-        border-radius: 12px !important;
-        margin-bottom: 15px !important;
-        transition: all 0.3s ease;
+        width: 45px !important;
+        height: 45px !important;
+        border-radius: 10px !important;
+        margin-bottom: 20px !important;
         cursor: pointer;
-        background-color: transparent;
-        color: #94a3b8; /* Gris claro */
-        font-size: 24px !important; /* Emoji grande */
+        color: #94a3b8;
+        font-size: 22px !important;
         border: 1px solid transparent;
-        padding: 0 !important;
+        background: transparent;
     }}
     
-    /* Hover */
+    /* Hover & Active */
     [data-testid="stSidebar"] div[role="radiogroup"] label:hover {{
-        background-color: #334155;
-        color: white;
-        transform: scale(1.1);
+        background-color: #334155; color: white;
     }}
-    
-    /* Activo */
     [data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"] {{
-        background-color: #3b82f6; /* Azul brillante */
-        color: white;
-        box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+        background-color: #3b82f6; color: white;
+        box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
     }}
 
-    /* Perfil solo Avatar */
-    .profile-mini {{
-        font-size: 2.5rem;
-        text-align: center;
-        margin-bottom: 30px;
-        cursor: help; /* Muestra tooltip nativo si se posa el mouse */
+    /* Avatar */
+    .mini-avatar {{
+        font-size: 2rem; margin-bottom: 30px; text-align: center; cursor: default;
     }}
     
     /* KPI Cards */
     .kpi-card {{
-        background: white; padding: 20px; border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.02); border-left: 5px solid #3b82f6;
+        background: white; padding: 20px; border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05); border-left: 4px solid #3b82f6;
     }}
     .kpi-val {{ font-size: 1.8rem; font-weight: 800; color: #0f172a; }}
-    .kpi-lbl {{ color: #64748b; font-size: 0.9rem; font-weight: 600; text-transform: uppercase; }}
+    .kpi-lbl {{ color: #64748b; font-size: 0.85rem; text-transform: uppercase; }}
 </style>
 """
 
@@ -155,10 +158,10 @@ else:
 
 
 # --- 3. CONEXIÓN Y DATOS ---
-# Mapeo de navegación: Emoji -> Vista
+# Mapeo: Emoji -> ID de Vista
 NAV_MAP = {
     "📅": "calendar",
-    "📊": "dashboard",
+    "📊": "dashboard",  # Aquí está tu herramienta de análisis recuperada
     "👥": "admin_users",
     "🔑": "admin_reqs"
 }
@@ -227,10 +230,10 @@ def guardar_registro(id_reg, fecha, prov, plat, serv, mast, paq, com):
             user = st.session_state['user_info']['username']
             if id_reg is None:
                 cur.execute("INSERT INTO registro_logistica (fecha, proveedor_logistico, plataforma_cliente, tipo_servicio, master_lote, paquetes, comentarios, created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)", (fecha, prov, plat, serv, mast, paq, com, user))
-                st.toast("Guardado correctamente")
+                st.toast("Guardado")
             else:
                 cur.execute("UPDATE registro_logistica SET fecha=%s, proveedor_logistico=%s, plataforma_cliente=%s, tipo_servicio=%s, master_lote=%s, paquetes=%s, comentarios=%s WHERE id=%s", (fecha, prov, plat, serv, mast, paq, com, id_reg))
-                st.toast("Actualizado correctamente")
+                st.toast("Actualizado")
             conn.commit(); conn.close()
         except Exception as e: st.error(str(e))
 
@@ -298,71 +301,60 @@ def modal_registro(datos=None):
 # ==============================================================================
 
 if not st.session_state['logged_in']:
-    # --- LOGIN RESTAURADO ---
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Contenedor visual blanco
-    st.markdown("""
-        <div class="login-box">
-            <h2 style="color:#333; margin-bottom:10px;">Nexus Logística</h2>
-            <p style="color:#888; margin-bottom:30px;">Panel de Control</p>
-        </div>
-    """, unsafe_allow_html=True)
+    # --- LOGIN LIMPIO SIN RECUADRO BLANCO ---
+    st.markdown("<h2 style='text-align: center; color: #333; margin-bottom: 30px;'>Nexus Logística</h2>", unsafe_allow_html=True)
 
-    u = st.text_input("Usuario", placeholder="Ingresa tu usuario", label_visibility="collapsed")
-    p = st.text_input("Contraseña", type="password", placeholder="••••••••", label_visibility="collapsed")
+    u = st.text_input("Usuario", placeholder="Usuario", label_visibility="collapsed")
+    st.markdown("<div style='margin-bottom: 15px;'></div>", unsafe_allow_html=True) # Espacio manual
+    p = st.text_input("Contraseña", type="password", placeholder="Contraseña", label_visibility="collapsed")
     
-    st.write("")
-    if st.button("INICIAR SESIÓN", type="primary"):
+    st.markdown("<div style='margin-bottom: 25px;'></div>", unsafe_allow_html=True) # Espacio manual
+    
+    if st.button("ACCEDER", type="primary"):
         user = verificar_login(u, p)
         if user:
             st.session_state['logged_in'] = True
             st.session_state['user_info'] = user
             st.rerun()
-        else: st.error("Acceso denegado")
+        else: st.error("Credenciales incorrectas")
         
     st.markdown("<br>", unsafe_allow_html=True)
-    
-    # SECCIÓN RESTAURADA DE RECUPERACIÓN
-    with st.expander("¿Olvidaste tu contraseña?"):
-        st.caption("Solicita un restablecimiento al administrador.")
-        ur = st.text_input("Usuario a recuperar")
-        if st.button("Enviar Solicitud"):
+    with st.expander("Recuperar acceso"):
+        ur = st.text_input("Ingresa tu usuario para restablecer")
+        if st.button("Enviar solicitud"):
             r = solicitar_reset_pass(ur)
-            if r=="ok": st.success("Solicitud enviada.")
-            elif r=="pendiente": st.info("Ya está pendiente.")
-            else: st.warning("Usuario no existe.")
+            if r=="ok": st.success("Enviado al administrador.")
+            elif r=="pendiente": st.info("Solicitud pendiente.")
+            else: st.warning("Usuario no encontrado.")
 
 else:
     u_info = st.session_state['user_info']
     rol = u_info['rol']
     
-    # --- BARRA LATERAL SOLO ICONOS (90px) ---
+    # --- BARRA LATERAL ULTRA SLIM (70px) ---
     with st.sidebar:
-        # Avatar (Solo icono)
+        # 1. Avatar Simple
         av = AVATARS.get(u_info.get('avatar'), '👤')
-        # Usamos title HTML native para tooltip al pasar el mouse
-        st.markdown(f"<div class='profile-mini' title='{u_info['username']} ({rol})'>{av}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='mini-avatar' title='{u_info['username']}'>{av}</div>", unsafe_allow_html=True)
         
-        # MENÚ DE SOLO ICONOS
-        # Definimos las opciones visuales (Solo emojis)
-        opts = ["📅", "📊"]
+        # 2. Menú Iconos
+        opts = ["📅", "📊"] # 📊 = Dashboard recuperado
         if rol == 'admin':
             opts.extend(["👥", "🔑"])
             
         seleccion_emoji = st.radio("Nav", opts, label_visibility="collapsed")
         
-        # Logout al fondo (Icono de puerta)
-        st.markdown("<div style='flex-grow:1'></div>", unsafe_allow_html=True) # Espaciador
-        if st.button("🚪", help="Cerrar Sesión"):
+        # 3. Logout
+        st.markdown("<div style='flex-grow:1; margin-top: 50px;'></div>", unsafe_allow_html=True)
+        if st.button("🚪", help="Salir"):
             st.session_state['logged_in'] = False
             st.rerun()
 
     # --- CONTENIDO PRINCIPAL ---
-    # Traducimos el emoji seleccionado a la vista lógica
     vista = NAV_MAP.get(seleccion_emoji, "calendar")
     df = cargar_datos()
     
+    # VISTA 1: CALENDARIO
     if vista == "calendar":
         c1, c2 = st.columns([6, 1])
         c1.title("Calendario Operativo")
@@ -389,47 +381,73 @@ else:
         cal = calendar(events=evts, options={"initialView": "dayGridMonth", "height": "750px"}, key="calendar_view")
         if cal.get("eventClick"): modal_registro(cal["eventClick"]["event"]["extendedProps"])
 
+    # VISTA 2: DASHBOARD (RECUPERADO)
     elif vista == "dashboard":
-        st.title("Reportes")
-        if df.empty: st.info("Sin datos.")
+        st.title("Análisis de Datos")
+        
+        if df.empty: st.info("No hay datos para analizar.")
         else:
-            k1, k2, k3 = st.columns(3)
-            k1.markdown(f"<div class='kpi-card'><div class='kpi-val'>{df['paquetes'].sum():,}</div><div class='kpi-lbl'>Total</div></div>", unsafe_allow_html=True)
-            k2.markdown(f"<div class='kpi-card'><div class='kpi-val'>{len(df)}</div><div class='kpi-lbl'>Viajes</div></div>", unsafe_allow_html=True)
+            # KPIs Superiores
+            k1, k2, k3, k4 = st.columns(4)
+            k1.markdown(f"<div class='kpi-card'><div class='kpi-val'>{df['paquetes'].sum():,}</div><div class='kpi-lbl'>Total Paquetes</div></div>", unsafe_allow_html=True)
+            k2.markdown(f"<div class='kpi-card'><div class='kpi-val'>{len(df)}</div><div class='kpi-lbl'>Total Envíos</div></div>", unsafe_allow_html=True)
             k3.markdown(f"<div class='kpi-card'><div class='kpi-val'>{df['paquetes'].mean():.0f}</div><div class='kpi-lbl'>Promedio</div></div>", unsafe_allow_html=True)
+            top_cli = df['plataforma_cliente'].mode()[0] if not df.empty else "-"
+            k4.markdown(f"<div class='kpi-card'><div class='kpi-val'>{top_cli}</div><div class='kpi-lbl'>Top Cliente</div></div>", unsafe_allow_html=True)
+            
             st.divider()
-            t1, t2 = st.tabs(["Gráficos", "Tabla"])
+            
+            # Pestañas de Gráficos
+            t1, t2, t3 = st.tabs(["📈 Tendencia", "📦 Distribución", "📋 Datos"])
+            
             with t1:
-                st.plotly_chart(px.line(df.groupby('fecha')['paquetes'].sum().reset_index(), x='fecha', y='paquetes'), use_container_width=True)
-            with t2: st.dataframe(df, use_container_width=True)
+                # Gráfico de Linea
+                g_line = df.groupby('fecha')['paquetes'].sum().reset_index()
+                fig_line = px.line(g_line, x='fecha', y='paquetes', markers=True, title="Volumen de Paquetes por Día")
+                st.plotly_chart(fig_line, use_container_width=True)
+                
+            with t2:
+                # Gráficos de Pastel y Barras
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    fig_pie = px.pie(df, names='proveedor_logistico', values='paquetes', title="Paquetes por Proveedor", hole=0.4)
+                    st.plotly_chart(fig_pie, use_container_width=True)
+                with col_b:
+                    fig_bar = px.bar(df, x='plataforma_cliente', y='paquetes', color='tipo_servicio', title="Paquetes por Cliente y Servicio")
+                    st.plotly_chart(fig_bar, use_container_width=True)
+                    
+            with t3:
+                st.dataframe(df, use_container_width=True)
 
+    # VISTA 3: ADMIN USUARIOS
     elif vista == "admin_users":
-        st.title("Usuarios")
+        st.title("Gestión de Usuarios")
         t_new, t_list = st.tabs(["Crear", "Lista"])
         with t_new:
             with st.form("f_new_u"):
                 nu = st.text_input("Usuario")
                 nr = st.selectbox("Rol", ["user", "analista", "admin"])
                 if st.form_submit_button("Crear"):
-                    if admin_crear_usuario(nu, nr): st.success("Ok")
+                    if admin_crear_usuario(nu, nr): st.success("Usuario creado")
         with t_list:
             df_u = admin_get_users()
             st.dataframe(df_u, use_container_width=True)
             c1, c2 = st.columns(2)
-            uid = c1.selectbox("ID", df_u['id'].tolist() if not df_u.empty else [])
+            uid = c1.selectbox("ID Usuario", df_u['id'].tolist() if not df_u.empty else [])
             if uid:
                 curr = df_u[df_u['id']==uid]['activo'].values[0]
-                if c2.button("Toggle Estado"): admin_toggle(uid, curr); st.rerun()
+                if c2.button("Cambiar Estado Activo/Inactivo"): admin_toggle(uid, curr); st.rerun()
 
+    # VISTA 4: ADMIN CLAVES
     elif vista == "admin_reqs":
-        st.title("Claves Pendientes")
+        st.title("Solicitudes de Clave")
         try:
             reqs = pd.read_sql("SELECT * FROM password_requests WHERE status='pendiente'", get_connection())
-            if reqs.empty: st.info("Nada pendiente.")
+            if reqs.empty: st.info("No hay solicitudes pendientes.")
             else:
                 for _, r in reqs.iterrows():
                     c1, c2 = st.columns([3,1])
-                    c1.write(f"User: {r['username']}")
-                    if c2.button("Reset (123456)", key=r['id']):
+                    c1.write(f"Usuario: **{r['username']}** solicitó reset.")
+                    if c2.button("Restablecer (123456)", key=r['id']):
                         admin_restablecer_password(r['id'], r['username']); st.rerun()
         except: st.error("Error BD")
