@@ -7,48 +7,35 @@ from streamlit_calendar import calendar
 # --- 1. CONFIGURACIÓN ---
 st.set_page_config(page_title="Control Logístico", layout="wide", initial_sidebar_state="collapsed")
 
-# --- 2. CSS MEJORADO ---
+# --- 2. CSS PARA ESTILO Y ALTURA ---
 st.markdown("""
     <style>
     .block-container { padding-top: 1rem; padding-bottom: 2rem; }
     
-    /* Calendario con altura forzada y celdas interactivas */
+    /* Calendario Grande y Clickeable */
     .fc {
         background-color: white;
         padding: 10px;
         border-radius: 10px;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
         height: 750px !important; 
     }
     
-    /* Asegurar que los días vacíos reaccionen al cursor */
-    .fc-daygrid-day-frame { cursor: pointer; } 
-
-    /* Estilo Tarjetas de Semana (Lateral) */
+    /* Estilo Tarjetas de Semana (Derecha) */
     .week-card {
-        background-color: #ffffff;
+        background-color: #f8f9fa;
         border-left: 5px solid #2c3e50;
-        border-right: 1px solid #eee;
-        border-top: 1px solid #eee;
-        border-bottom: 1px solid #eee;
         padding: 12px;
         margin-bottom: 12px;
-        border-radius: 6px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        border-radius: 5px;
+        border: 1px solid #eee;
+        border-left-width: 5px;
     }
-    .week-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 8px;
-    }
-    .week-title { font-weight: 800; color: #2c3e50; font-size: 1rem; }
-    .week-dates { font-size: 0.75rem; color: #888; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px;}
+    .week-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+    .week-title { font-weight: bold; color: #2c3e50; font-size: 1rem; }
+    .week-dates { font-size: 0.75rem; color: #666; font-weight: 500; text-transform: uppercase; margin-bottom: 8px; }
     
-    .stat-row { 
-        display: flex; justify-content: space-between; 
-        font-size: 0.9rem; margin-top: 4px; border-bottom: 1px dashed #eee; padding-bottom: 4px;
-    }
+    .stat-row { display: flex; justify-content: space-between; font-size: 0.9rem; padding: 2px 0; border-bottom: 1px dashed #eee; }
     .val-paq { color: #2980b9; font-weight: bold; }
     .val-mast { color: #d35400; font-weight: bold; }
     </style>
@@ -78,7 +65,6 @@ def cargar_datos():
 def guardar_registro(fecha, paquetes, masters, proveedor, comentarios):
     conn = get_connection()
     cursor = conn.cursor()
-    # Insertar o Actualizar
     query = """
     INSERT INTO registro_diario (fecha, paquetes, masters, proveedor, comentarios)
     VALUES (%s, %s, %s, %s, %s)
@@ -90,52 +76,43 @@ def guardar_registro(fecha, paquetes, masters, proveedor, comentarios):
     conn.commit()
     conn.close()
 
-# --- 4. FUNCIONES DE FECHA (SEMANAS EN ESPAÑOL) ---
+# --- 4. CALCULAR FECHAS DE SEMANA (Lunes a Domingo) ---
 def get_week_details(year, week_num):
-    """Calcula fecha inicio (lun) y fin (dom) de una semana ISO"""
     try:
         # Primer día de la semana (Lunes)
         d_start = date.fromisocalendar(year, week_num, 1)
-        # Último día de la semana (Domingo)
+        # Último día (Domingo)
         d_end = d_start + timedelta(days=6)
         
-        # Diccionario manual de meses para asegurar español
         meses = {1:"Ene", 2:"Feb", 3:"Mar", 4:"Abr", 5:"May", 6:"Jun", 
                  7:"Jul", 8:"Ago", 9:"Sep", 10:"Oct", 11:"Nov", 12:"Dic"}
         
-        mes_nombre = meses[d_start.month]
-        
-        # Formato: "01 Dic - 07 Dic"
+        # Ejemplo: "02 Dic - 08 Dic"
         rango = f"{d_start.day} {meses[d_start.month]} - {d_end.day} {meses[d_end.month]}"
-        return mes_nombre, rango
+        return meses[d_start.month], rango
     except:
         return "", ""
 
-# --- 5. VENTANA MODAL ---
+# --- 5. VENTANA MODAL (POPUP) ---
 @st.dialog("📝 Gestionar Día")
 def modal_registro(fecha_str, datos=None):
-    # Intentar parsear la fecha para título bonito
     try:
         fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
-        meses_full = ["", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
-        titulo = f"{fecha_obj.day} de {meses_full[fecha_obj.month]}, {fecha_obj.year}"
+        st.markdown(f"### 📅 {fecha_obj.strftime('%d / %m / %Y')}")
     except:
-        titulo = fecha_str
+        st.write(f"Fecha: {fecha_str}")
 
-    st.markdown(f"### 📅 {titulo}")
-    
-    # Precarga de datos (si es edición) o ceros (si es nuevo)
     d_paq = datos['paquetes'] if datos else 0
     d_mast = datos['masters'] if datos else 0
     d_prov = datos['proveedor'] if datos else ""
     d_com = datos['comentarios'] if datos else ""
 
-    with st.form("mi_formulario"):
+    with st.form("mi_form"):
         c1, c2 = st.columns(2)
         paq = c1.number_input("📦 Paquetes", min_value=0, value=d_paq, step=1)
         mast = c2.number_input("🧱 Másters", min_value=0, value=d_mast, step=1)
-        prov = st.text_input("🚚 Proveedor", value=d_prov, placeholder="Ej. DHL")
-        com = st.text_area("💬 Comentarios", value=d_com)
+        prov = st.text_input("🚚 Proveedor", value=d_prov, placeholder="Ej: DHL")
+        com = st.text_area("💬 Notas", value=d_com)
         
         if st.form_submit_button("💾 Guardar Datos", type="primary", use_container_width=True):
             guardar_registro(fecha_str, paq, mast, prov, com)
@@ -144,23 +121,26 @@ def modal_registro(fecha_str, datos=None):
 # --- 6. INTERFAZ PRINCIPAL ---
 df = cargar_datos()
 
-# Título y KPIs
 st.title("Sistema de Control Logístico")
+
+# Métricas rápidas arriba
 if not df.empty:
     hoy = date.today()
     df_mes = df[df['fecha'].dt.month == hoy.month]
-    c1,c2,c3,c4 = st.columns(4)
-    c1.metric("📦 Paquetes Mes", f"{df_mes['paquetes'].sum():,}")
-    c2.metric("🧱 Másters Mes", f"{df_mes['masters'].sum():,}")
-    c3.metric("Días Operativos", len(df_mes))
-    c4.metric("Promedio Paq/Día", int(df_mes['paquetes'].mean()) if not df_mes.empty else 0)
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("📦 Paquetes (Mes)", f"{df_mes['paquetes'].sum():,}")
+    col2.metric("🧱 Másters (Mes)", f"{df_mes['masters'].sum():,}")
+    col3.metric("📅 Días con Datos", len(df_mes))
+    prom = int(df_mes['paquetes'].mean()) if not df_mes.empty else 0
+    col4.metric("📊 Promedio Diario", prom)
 
 st.divider()
 
-col_izq, col_der = st.columns([4, 1.2], gap="medium")
+# Layout: Calendario (Izquierda) - Totales (Derecha)
+col_cal, col_sidebar = st.columns([4, 1.2], gap="medium")
 
-with col_izq:
-    # 1. Preparar Eventos
+with col_cal:
+    # Preparar eventos
     events = []
     if not df.empty:
         for _, row in df.iterrows():
@@ -185,11 +165,9 @@ with col_izq:
                     "extendedProps": {"paquetes": row['paquetes'], "masters": row['masters'], "proveedor": row['proveedor'], "comentarios": row['comentarios']}
                 })
 
-    # 2. Configurar Calendario (Opciones Críticas)
     cal_options = {
         "editable": False,
-        "selectable": True,  # ESTO HABILITA EL CLIC EN CELDA VACÍA
-        "navLinks": False,   # Desactivar links a día individual para no confundir clicks
+        "selectable": True, # IMPORTANTE: Permite clic en celda vacía
         "headerToolbar": {
             "left": "prev,next today",
             "center": "title",
@@ -200,47 +178,53 @@ with col_izq:
         "locale": "es"
     }
 
-    state = calendar(events=events, options=cal_options, key="mi_calendario_final")
+    state = calendar(events=events, options=cal_options, key="mi_calendario")
 
-    # 3. Lógica de Clic (A PRUEBA DE FALLOS)
-    if state.get("dateClick") is not None:
-        # Clic en fondo blanco (Nuevo registro)
-        fecha_clic = state["dateClick"]["dateStr"]
-        modal_registro(fecha_clic)
+    # --- LÓGICA DE CLIC SEGURA (AQUÍ ESTÁ EL ARREGLO) ---
+    
+    # 1. Obtenemos el objeto de clic de forma segura
+    date_click = state.get("dateClick")
+    event_click = state.get("eventClick")
+
+    # 2. Verificamos explícitamente qué tipo de clic fue
+    if date_click and isinstance(date_click, dict) and "dateStr" in date_click:
+        # Clic en día vacío (Nuevo)
+        modal_registro(date_click["dateStr"])
         
-    elif state.get("eventClick") is not None:
-        # Clic en evento (Editar registro)
-        datos = state["eventClick"]["event"]
-        fecha_clic = datos["start"].split("T")[0]
-        props = datos.get("extendedProps", {})
-        modal_registro(fecha_clic, props)
+    elif event_click and isinstance(event_click, dict) and "event" in event_click:
+        # Clic en evento (Editar)
+        evento = event_click["event"]
+        if "start" in evento:
+            fecha_limpia = evento["start"].split("T")[0]
+            props = evento.get("extendedProps", {})
+            modal_registro(fecha_limpia, props)
 
-with col_der:
-    st.subheader("🗓️ Totales Semanales")
+with col_sidebar:
+    st.subheader("🗓️ Totales Semana")
     st.markdown("<hr style='margin: 5px 0;'>", unsafe_allow_html=True)
     
     if not df.empty:
-        # Agregamos columnas de año y semana para agrupar bien
+        # Añadir columnas para agrupar
         df['year'] = df['fecha'].dt.year
         df['week'] = df['fecha'].dt.isocalendar().week
         
-        # Agrupar ordenando por fecha descendente (más reciente arriba)
+        # Agrupar datos (orden descendente para ver lo más nuevo arriba)
         resumen = df.groupby(['year', 'week'])[['paquetes', 'masters']].sum().sort_index(ascending=False)
         
         if resumen.empty:
-            st.info("No hay datos recientes.")
+            st.info("Sin datos recientes.")
         else:
-            # Iterar y crear las tarjetas bonitas
             for (year, week), fila in resumen.iterrows():
-                # Obtener detalles de fechas
-                mes_str, rango_str = get_week_details(year, week)
+                # Calcular fechas de inicio y fin de esa semana
+                mes_nom, rango_fechas = get_week_details(year, week)
                 
                 st.markdown(f"""
                 <div class="week-card">
                     <div class="week-header">
-                        <span class="week-title">Semana {week} <small style="color:#888; font-weight:normal;">({mes_str})</small></span>
+                        <span class="week-title">Semana {week} <span style="font-weight:normal; color:#555;">({mes_nom})</span></span>
                     </div>
-                    <div class="week-dates">📅 {rango_str}</div>
+                    <div class="week-dates">📅 {rango_fechas}</div>
+                    
                     <div class="stat-row">
                         <span>📦 Paquetes</span>
                         <span class="val-paq">{fila['paquetes']}</span>
@@ -252,4 +236,15 @@ with col_der:
                 </div>
                 """, unsafe_allow_html=True)
     else:
-        st.info("👋 ¡Bienvenido! Haz clic en cualquier día del calendario para comenzar.")
+        st.info("👈 Registra datos en el calendario.")
+
+st.divider()
+with st.expander("📈 Ver Dashboard de Análisis"):
+    if not df.empty:
+        import plotly.express as px
+        t1, t2 = st.tabs(["Evolución", "Proveedores"])
+        with t1:
+            fig = px.line(df, x='fecha', y=['paquetes', 'masters'], markers=True)
+            st.plotly_chart(fig, use_container_width=True)
+        with t2:
+            st.bar_chart(df.groupby('proveedor')['paquetes'].sum())
