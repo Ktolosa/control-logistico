@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta
 from streamlit_calendar import calendar
 import plotly.express as px
 import re
-import io # Necesario para generar Excels en memoria
+import io
 
 # --- 1. CONFIGURACIÓN INICIAL ---
 st.set_page_config(
@@ -75,10 +75,7 @@ dashboard_css = f"""
     .kpi-val {{ font-size: 1.5rem; color: #0f172a; font-weight: 800; }}
     .count-ok {{ color: #16a34a; font-weight: bold; font-size: 0.9rem; }}
     .count-err {{ color: #dc2626; font-weight: bold; font-size: 0.9rem; }}
-    
-    /* Estilos tabla TEMU */
-    .temu-row {{ background: white; padding: 15px; margin-bottom: 10px; border-radius: 10px; border: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; }}
-    .temu-tag {{ background: #dbeafe; color: #1e40af; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: 600; }}
+    .temu-header {{ font-weight: bold; color: #1e293b; margin-bottom: 5px; }}
 </style>
 """
 
@@ -102,7 +99,7 @@ def get_connection():
         )
     except: return None
 
-# --- FUNCIONES LÓGICAS DE NEGOCIO ---
+# --- FUNCIONES LÓGICAS ---
 def verificar_login(u, p):
     conn = get_connection()
     if not conn: return None
@@ -182,161 +179,99 @@ def eliminar_registro(id_reg, admin_pass):
         except Exception as e: st.error(str(e)); return False
     return False
 
-# --- LÓGICA GESTOR TEMU (NUEVA FUNCIÓN) ---
+# --- LOGICA TEMU MANAGER ---
 def procesar_archivo_temu(uploaded_file):
-    """
-    Procesa el archivo Excel de TEMU y devuelve un diccionario con dataframes 
-    separados por master para Manifiesto y Costos.
-    """
     try:
-        # Leer el archivo sin encabezados para acceder por índice
-        df_raw = pd.read_excel(uploaded_file, header=None)
-        # Reemplazar NaN con string vacío
-        df_raw = df_raw.fillna("")
-        
-        # Filtrar filas donde la columna 3 (Master) tenga dato (empezando desde fila 1 para saltar header original si existe)
-        # Ajustamos lógica: asumimos que la fila 0 es header del excel original, empezamos data en fila 1
+        df_raw = pd.read_excel(uploaded_file, header=None).fillna("")
         data_rows = df_raw.iloc[1:]
         data_rows = data_rows[data_rows[3].astype(str).str.strip() != ""]
-        
-        if data_rows.empty:
-            return None, "No se encontraron datos válidos en la columna de Master (Columna D)."
+        if data_rows.empty: return None, None, "No se encontraron datos en columna Master (D)."
 
-        # Agrupar por Master (Columna 3)
         grouped = data_rows.groupby(3)
-        
         resultados = {}
-        
-        # Definición de encabezados
-        headers_main = [
-            "HAWB", "Sender Name", "City", "Country", "Name of Consignee", 
-            "Consignee Country", "Consignee Address", "State / Departamento", 
-            "Municipality / Municipio", "ZiP Code", "Contact Number", "Email", 
-            "Goods Desc", "N. MAWB (Master)", "No of Item", "Weight(kg)", 
-            "Customs Value USD (FOB)", "HS CODE", "Customs Currency", "BOX NO.", "ID / DUI"
-        ]
-        
-        headers_costos = [
-            "TRAKING", "PESO", "CLIENTE", "DESCRIPTION", "REF", "N° de SACO", 
-            "VALUE", "DAI", "IVA", "TOTAL IMPUESTOS", "COMISION", "MANEJO", 
-            "IVA COMISION", "IVA MANEJO", "TOTAL IVA", "TOTAL"
-        ]
+        resumen_list = [] # Para la tabla resumen
+
+        headers_main = ["HAWB", "Sender Name", "City", "Country", "Name of Consignee", "Consignee Country", "Consignee Address", "State / Departamento", "Municipality / Municipio", "ZiP Code", "Contact Number", "Email", "Goods Desc", "N. MAWB (Master)", "No of Item", "Weight(kg)", "Customs Value USD (FOB)", "HS CODE", "Customs Currency", "BOX NO.", "ID / DUI"]
+        headers_costos = ["TRAKING", "PESO", "CLIENTE", "DESCRIPTION", "REF", "N° de SACO", "VALUE", "DAI", "IVA", "TOTAL IMPUESTOS", "COMISION", "MANEJO", "IVA COMISION", "IVA MANEJO", "TOTAL IVA", "TOTAL"]
 
         for master, group in grouped:
-            # 1. GENERAR MANIFIESTO
-            # Mapeo JS: { 0: 7, 4: 10, 6: 14, 7: 11, 8: 12, 9: 13, 10: 16, 11: 17, 12: 15, 13: 3, 19: 5 }
-            # Indices en Python son iguales.
+            # Manifiesto
             rows_main = []
             for _, row in group.iterrows():
-                new_row = [""] * 21
-                # Mapeo Dinámico
-                new_row[0] = str(row[7]).strip()  # HAWB
-                new_row[4] = str(row[10]).strip() # Consignee
-                new_row[6] = str(row[14]).strip() # Address
-                new_row[7] = str(row[11]).strip() # State
-                new_row[8] = str(row[12]).strip() # Municipality
-                new_row[9] = str(row[13]).strip() # Zip
-                new_row[10] = str(row[16]).strip() # Contact
-                new_row[11] = str(row[17]).strip() # Email
-                new_row[12] = str(row[15]).strip() # Desc
-                new_row[13] = str(row[3]).strip()  # Master
-                new_row[19] = str(row[5]).strip()  # Box No
-
-                # Estáticos
-                new_row[1] = "YC - Log. for Temu"
-                new_row[2] = "Zhaoqing"
-                new_row[3] = "CN"
-                new_row[5] = "SLV"
-                new_row[18] = "USD"
-                new_row[14] = "1"
-                new_row[15] = "0.45"
-                new_row[16] = "0.01"
-                new_row[17] = "N/A"
-                new_row[20] = "N/A"
-                
-                rows_main.append(new_row)
+                r = [""] * 21
+                r[0]=str(row[7]).strip(); r[4]=str(row[10]).strip(); r[6]=str(row[14]).strip(); r[7]=str(row[11]).strip();
+                r[8]=str(row[12]).strip(); r[9]=str(row[13]).strip(); r[10]=str(row[16]).strip(); r[11]=str(row[17]).strip();
+                r[12]=str(row[15]).strip(); r[13]=str(row[3]).strip(); r[19]=str(row[5]).strip();
+                r[1]="YC - Log. for Temu"; r[2]="Zhaoqing"; r[3]="CN"; r[5]="SLV"; r[18]="USD";
+                r[14]="1"; r[15]="0.45"; r[16]="0.01"; r[17]="N/A"; r[20]="N/A";
+                rows_main.append(r)
             
-            df_main = pd.DataFrame(rows_main, columns=headers_main)
-
-            # 2. GENERAR COSTOS
+            # Costos
             rows_costos = []
             for _, row in group.iterrows():
-                c_row = [""] * 16
-                c_row[0] = str(row[7]).strip()  # Tracking
-                c_row[2] = str(row[10]).strip() # Cliente
-                c_row[3] = str(row[15]).strip() # Desc
-                c_row[5] = str(row[5]).strip()  # Saco
-                
-                # Estáticos Costos
-                c_row[7] = "0.00"; c_row[8] = "0.01"; c_row[9] = "0.01"
-                c_row[10] = "0.00"; c_row[11] = "0.00"; c_row[12] = "0.00"
-                c_row[13] = "0.00"; c_row[14] = "0.00"; c_row[15] = "0.01"
-                
-                rows_costos.append(c_row)
-                
-            df_costos = pd.DataFrame(rows_costos, columns=headers_costos)
-            
-            # Info extra para la tabla UI
+                c = [""] * 16
+                c[0]=str(row[7]).strip(); c[2]=str(row[10]).strip(); c[3]=str(row[15]).strip(); c[5]=str(row[5]).strip();
+                c[7]="0.00"; c[8]="0.01"; c[9]="0.01"; c[10]="0.00"; c[11]="0.00"; c[12]="0.00"; c[13]="0.00"; c[14]="0.00"; c[15]="0.01";
+                rows_costos.append(c)
+
             paquetes = len(group)
             cajas = group[5].nunique()
-            
+
             resultados[master] = {
-                "main": df_main,
-                "costos": df_costos,
+                "main": pd.DataFrame(rows_main, columns=headers_main),
+                "costos": pd.DataFrame(rows_costos, columns=headers_costos),
                 "info": {"paquetes": paquetes, "cajas": cajas}
             }
-            
-        return resultados, None
+            # Agregar al resumen
+            resumen_list.append({"Master": master, "Cajas": cajas, "Paquetes": paquetes})
+        
+        df_resumen = pd.DataFrame(resumen_list)
+        return resultados, df_resumen, None
 
-    except Exception as e:
-        return None, str(e)
+    except Exception as e: return None, None, str(e)
 
-def to_excel_bytes(df):
+def to_excel_bytes(df, fmt='xlsx'):
+    """Genera el archivo en memoria según el formato elegido"""
     output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Sheet1')
+    if fmt == 'xlsx':
+        # Excel Moderno (xlsxwriter)
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df.to_excel(writer, index=False, sheet_name='Sheet1')
+    else:
+        # Excel 97-2003 (xlwt) - Requiere instalar xlwt en requirements.txt
+        with pd.ExcelWriter(output, engine='xlwt') as writer:
+            df.to_excel(writer, index=False, sheet_name='Sheet1')
     return output.getvalue()
 
 
-# Funciones Admin (Usuarios/Claves)
+# Funciones Admin
 def admin_crear_usuario(u, r):
     conn = get_connection(); 
     if conn:
-        try:
-            conn.cursor().execute("INSERT INTO usuarios (username, password, rol, avatar) VALUES (%s, '123456', %s, 'avatar_1')", (u, r))
-            conn.commit(); conn.close(); return True
+        try: conn.cursor().execute("INSERT INTO usuarios (username, password, rol, avatar) VALUES (%s, '123456', %s, 'avatar_1')", (u, r)); conn.commit(); conn.close(); return True
         except: pass; return False
 def admin_get_users():
-    conn = get_connection(); 
-    return pd.read_sql("SELECT id, username, rol, activo FROM usuarios", conn) if conn else pd.DataFrame()
+    conn = get_connection(); return pd.read_sql("SELECT id, username, rol, activo FROM usuarios", conn) if conn else pd.DataFrame()
 def admin_toggle(uid, curr):
     conn = get_connection(); conn.cursor().execute("UPDATE usuarios SET activo=%s WHERE id=%s", (0 if curr==1 else 1, uid)); conn.commit(); conn.close()
 def admin_update_role(uid, new_role):
-    conn = get_connection()
-    if conn:
-        try:
-            conn.cursor().execute("UPDATE usuarios SET rol=%s WHERE id=%s", (new_role, uid))
-            conn.commit(); conn.close(); return True
-        except: pass; return False
+    conn = get_connection(); 
+    if conn: conn.cursor().execute("UPDATE usuarios SET rol=%s WHERE id=%s", (new_role, uid)); conn.commit(); conn.close(); return True; return False
 def admin_restablecer_password(rid, uname):
     conn = get_connection(); 
-    if conn:
-        cur=conn.cursor(); cur.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (uname,)); cur.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (rid,)); conn.commit(); conn.close()
+    if conn: cur=conn.cursor(); cur.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (uname,)); cur.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (rid,)); conn.commit(); conn.close()
 def solicitar_reset_pass(username):
     conn = get_connection(); 
     if not conn: return "error"
-    try:
-        cur = conn.cursor(); cur.execute("SELECT id FROM usuarios WHERE username=%s", (username,)); 
-        if cur.fetchone():
-            cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,)); conn.commit(); conn.close(); return "ok"
-        conn.close(); return "no_user"
+    try: cur = conn.cursor(); cur.execute("SELECT id FROM usuarios WHERE username=%s", (username,)); 
+    if cur.fetchone(): cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,)); conn.commit(); conn.close(); return "ok"
+    conn.close(); return "no_user"
     except: return "error"
 def cambiar_password(uid, np):
     conn=get_connection();
-    if conn: conn.cursor().execute("UPDATE usuarios SET password=%s WHERE id=%s",(np, uid)); conn.commit(); conn.close(); return True;
-    return False
+    if conn: conn.cursor().execute("UPDATE usuarios SET password=%s WHERE id=%s",(np, uid)); conn.commit(); conn.close(); return True; return False
 
-# --- 4. MODAL DE GESTIÓN ---
+# --- 4. MODAL ---
 @st.dialog("Gestión de Carga")
 def modal_registro(datos=None):
     rol = st.session_state['user_info']['rol']
@@ -420,17 +355,15 @@ else:
         av = AVATARS.get(u_info.get('avatar'), '👤')
         st.markdown(f"<div class='avatar-float' title='{u_info['username']}'>{av}</div>", unsafe_allow_html=True)
         
-        # --- MENÚ ACTUALIZADO CON GESTOR TEMU (📑) ---
-        opciones = ["📅", "📈", "📑", "⚙️"] # 📑 = Gestor TEMU
+        opciones = ["📅", "📈", "📑", "⚙️"] 
         if rol == 'admin': opciones.extend(["👥", "🔑"])
         
         seleccion = st.radio("Menu", opciones, label_visibility="collapsed")
         
-        # Mapa actualizado
         mapa = {
             "📅": "calendar", 
             "📈": "analytics_pro", 
-            "📑": "temu_manager", # <--- Nueva Vista
+            "📑": "temu_manager", 
             "⚙️": "user_settings", 
             "👥": "admin_users", 
             "🔑": "admin_reqs"
@@ -522,50 +455,49 @@ else:
                     csv = df_fil.to_csv(index=False).encode('utf-8')
                     st.download_button("Descargar CSV", csv, "reporte.csv", "text/csv")
 
-    # --- NUEVA VISTA: GESTOR TEMU (MIGRADO DE JS A PYTHON) ---
     elif vista == "temu_manager":
         st.title("Gestor TEMU | Multi-Formato")
         st.markdown("Procesamiento inteligente de archivos Excel.")
         
         with st.container(border=True):
             f_temu = st.file_uploader("Cargar Archivo de DATOS (.xlsx, .xls)", type=["xlsx", "xls"])
-            
             if f_temu:
-                resultados, error = procesar_archivo_temu(f_temu)
+                resultados, df_resumen, error = procesar_archivo_temu(f_temu)
                 
                 if error:
                     st.error(f"Error al procesar: {error}")
                 elif resultados:
-                    st.success("✅ Archivo procesado correctamente. Masters encontradas:")
+                    # TABLA RESUMEN PEQUEÑA AL PRINCIPIO
+                    st.subheader("📋 Resumen de Carga")
+                    st.dataframe(df_resumen, hide_index=True, use_container_width=False) # Tabla pequeña
                     
-                    # Mostrar resultados
+                    st.divider()
+                    st.subheader("📁 Descargas Disponibles")
+                    
+                    # Selector de Formato
+                    fmt_option = st.radio("Formato de salida:", ["Excel Moderno (.xlsx)", "Excel 97-2003 (.xls)"], horizontal=True)
+                    fmt_ext = "xlsx" if "Moderno" in fmt_option else "xls"
+                    mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if fmt_ext == "xlsx" else "application/vnd.ms-excel"
+
                     for master, data in resultados.items():
-                        with st.container(border=True):
-                            c_info, c_main, c_cost = st.columns([2, 1, 1])
+                        with st.expander(f"📦 Master: {master} ({data['info']['paquetes']} paq)", expanded=False):
+                            c_main, c_cost = st.columns(2)
                             
-                            info = data["info"]
-                            c_info.markdown(f"**Master:** `{master}`")
-                            c_info.caption(f"📦 Paquetes: {info['paquetes']} | 📦 Cajas: {info['cajas']}")
-                            
-                            # Botones descarga
                             c_main.download_button(
-                                label="📥 Manifiesto",
-                                data=to_excel_bytes(data["main"]),
-                                file_name=f"{master}_Manifiesto.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                label=f"📥 Manifiesto .{fmt_ext}",
+                                data=to_excel_bytes(data["main"], fmt_ext),
+                                file_name=f"{master}_Manifiesto.{fmt_ext}",
+                                mime=mime_type,
                                 key=f"btn_main_{master}"
                             )
                             
                             c_cost.download_button(
-                                label="💲 Costos",
-                                data=to_excel_bytes(data["costos"]),
-                                file_name=f"{master}_Costos.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                label=f"💲 Costos .{fmt_ext}",
+                                data=to_excel_bytes(data["costos"], fmt_ext),
+                                file_name=f"{master}_Costos.{fmt_ext}",
+                                mime=mime_type,
                                 key=f"btn_cost_{master}"
                             )
-                            
-                            with st.expander("Ver Detalle"):
-                                st.dataframe(data["main"], hide_index=True)
 
     elif vista == "user_settings":
         st.title("Configuración")
@@ -597,12 +529,10 @@ else:
                     current_user_data = df_u[df_u['id'] == uid].iloc[0]
                     current_role = current_user_data['rol']
                     current_active = current_user_data['activo']
-                    
                     new_role = c2.selectbox("Cambiar Rol", ["user", "analista", "admin"], index=["user", "analista", "admin"].index(current_role))
                     if c2.button("💾 Actualizar Rol"):
                         if admin_update_role(uid, new_role): st.success("Rol actualizado"); st.rerun()
                         else: st.error("Error")
-
                     btn_lbl = "🔴 Desactivar" if current_active == 1 else "🟢 Reactivar"
                     if c3.button(btn_lbl):
                         admin_toggle(uid, current_active); st.rerun()
