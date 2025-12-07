@@ -194,7 +194,6 @@ def procesar_archivo_temu(uploaded_file):
         headers_costos = ["TRAKING", "PESO", "CLIENTE", "DESCRIPTION", "REF", "N° de SACO", "VALUE", "DAI", "IVA", "TOTAL IMPUESTOS", "COMISION", "MANEJO", "IVA COMISION", "IVA MANEJO", "TOTAL IVA", "TOTAL"]
 
         for master, group in grouped:
-            # 1. Manifiesto
             rows_main = []
             for _, row in group.iterrows():
                 r = [""] * 21
@@ -205,7 +204,6 @@ def procesar_archivo_temu(uploaded_file):
                 r[14]="1"; r[15]="0.45"; r[16]="0.01"; r[17]="N/A"; r[20]="N/A";
                 rows_main.append(r)
             
-            # 2. Costos
             rows_costos = []
             for _, row in group.iterrows():
                 c = [""] * 16
@@ -546,7 +544,7 @@ else:
                             c_main.download_button(
                                 label=f"📥 Manifiesto .{fmt_ext}",
                                 data=to_excel_bytes(data["main"], fmt_ext),
-                                file_name=f"{master}_Manifiesto.{fmt_ext}",
+                                file_name=f"{master}.{fmt_ext}",
                                 mime=mime_type,
                                 key=f"btn_main_{master}"
                             )
