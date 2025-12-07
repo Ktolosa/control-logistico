@@ -179,7 +179,7 @@ def eliminar_registro(id_reg, admin_pass):
         except Exception as e: st.error(str(e)); return False
     return False
 
-# --- LOGICA TEMU MANAGER ---
+# --- LÓGICA GESTOR TEMU ---
 def procesar_archivo_temu(uploaded_file):
     try:
         df_raw = pd.read_excel(uploaded_file, header=None).fillna("")
@@ -189,13 +189,12 @@ def procesar_archivo_temu(uploaded_file):
 
         grouped = data_rows.groupby(3)
         resultados = {}
-        resumen_list = [] # Para la tabla resumen
+        resumen_list = []
 
         headers_main = ["HAWB", "Sender Name", "City", "Country", "Name of Consignee", "Consignee Country", "Consignee Address", "State / Departamento", "Municipality / Municipio", "ZiP Code", "Contact Number", "Email", "Goods Desc", "N. MAWB (Master)", "No of Item", "Weight(kg)", "Customs Value USD (FOB)", "HS CODE", "Customs Currency", "BOX NO.", "ID / DUI"]
         headers_costos = ["TRAKING", "PESO", "CLIENTE", "DESCRIPTION", "REF", "N° de SACO", "VALUE", "DAI", "IVA", "TOTAL IMPUESTOS", "COMISION", "MANEJO", "IVA COMISION", "IVA MANEJO", "TOTAL IVA", "TOTAL"]
 
         for master, group in grouped:
-            # Manifiesto
             rows_main = []
             for _, row in group.iterrows():
                 r = [""] * 21
@@ -206,7 +205,6 @@ def procesar_archivo_temu(uploaded_file):
                 r[14]="1"; r[15]="0.45"; r[16]="0.01"; r[17]="N/A"; r[20]="N/A";
                 rows_main.append(r)
             
-            # Costos
             rows_costos = []
             for _, row in group.iterrows():
                 c = [""] * 16
@@ -222,7 +220,6 @@ def procesar_archivo_temu(uploaded_file):
                 "costos": pd.DataFrame(rows_costos, columns=headers_costos),
                 "info": {"paquetes": paquetes, "cajas": cajas}
             }
-            # Agregar al resumen
             resumen_list.append({"Master": master, "Cajas": cajas, "Paquetes": paquetes})
         
         df_resumen = pd.DataFrame(resumen_list)
@@ -231,45 +228,103 @@ def procesar_archivo_temu(uploaded_file):
     except Exception as e: return None, None, str(e)
 
 def to_excel_bytes(df, fmt='xlsx'):
-    """Genera el archivo en memoria según el formato elegido"""
     output = io.BytesIO()
     if fmt == 'xlsx':
-        # Excel Moderno (xlsxwriter)
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df.to_excel(writer, index=False, sheet_name='Sheet1')
     else:
-        # Excel 97-2003 (xlwt) - Requiere instalar xlwt en requirements.txt
         with pd.ExcelWriter(output, engine='xlwt') as writer:
             df.to_excel(writer, index=False, sheet_name='Sheet1')
     return output.getvalue()
 
 
-# Funciones Admin
+# --- FUNCIONES ADMIN (USUARIOS Y CLAVES) - CORREGIDO ---
 def admin_crear_usuario(u, r):
-    conn = get_connection(); 
+    conn = get_connection()
     if conn:
-        try: conn.cursor().execute("INSERT INTO usuarios (username, password, rol, avatar) VALUES (%s, '123456', %s, 'avatar_1')", (u, r)); conn.commit(); conn.close(); return True
-        except: pass; return False
+        try:
+            cur = conn.cursor()
+            cur.execute("INSERT INTO usuarios (username, password, rol, avatar) VALUES (%s, '123456', %s, 'avatar_1')", (u, r))
+            conn.commit()
+            conn.close()
+            return True
+        except:
+            pass
+    return False
+
 def admin_get_users():
-    conn = get_connection(); return pd.read_sql("SELECT id, username, rol, activo FROM usuarios", conn) if conn else pd.DataFrame()
+    conn = get_connection()
+    if conn:
+        df = pd.read_sql("SELECT id, username, rol, activo FROM usuarios", conn)
+        conn.close()
+        return df
+    return pd.DataFrame()
+
 def admin_toggle(uid, curr):
-    conn = get_connection(); conn.cursor().execute("UPDATE usuarios SET activo=%s WHERE id=%s", (0 if curr==1 else 1, uid)); conn.commit(); conn.close()
+    conn = get_connection()
+    if conn:
+        cur = conn.cursor()
+        new_status = 0 if curr == 1 else 1
+        cur.execute("UPDATE usuarios SET activo=%s WHERE id=%s", (new_status, uid))
+        conn.commit()
+        conn.close()
+
 def admin_update_role(uid, new_role):
-    conn = get_connection(); 
-    if conn: conn.cursor().execute("UPDATE usuarios SET rol=%s WHERE id=%s", (new_role, uid)); conn.commit(); conn.close(); return True; return False
+    conn = get_connection()
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute("UPDATE usuarios SET rol=%s WHERE id=%s", (new_role, uid))
+            conn.commit()
+            conn.close()
+            return True
+        except:
+            pass
+    return False
+
 def admin_restablecer_password(rid, uname):
-    conn = get_connection(); 
-    if conn: cur=conn.cursor(); cur.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (uname,)); cur.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (rid,)); conn.commit(); conn.close()
+    conn = get_connection()
+    if conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (uname,))
+        cur.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (rid,))
+        conn.commit()
+        conn.close()
+
 def solicitar_reset_pass(username):
-    conn = get_connection(); 
+    conn = get_connection()
     if not conn: return "error"
-    try: cur = conn.cursor(); cur.execute("SELECT id FROM usuarios WHERE username=%s", (username,)); 
-    if cur.fetchone(): cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,)); conn.commit(); conn.close(); return "ok"
-    conn.close(); return "no_user"
-    except: return "error"
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM usuarios WHERE username=%s", (username,))
+        user_exists = cur.fetchone()
+        
+        if user_exists:
+            cur.execute("SELECT id FROM password_requests WHERE username=%s AND status='pendiente'", (username,))
+            if not cur.fetchone():
+                cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,))
+                conn.commit()
+                conn.close()
+                return "ok"
+            conn.close()
+            return "pendiente"
+        conn.close()
+        return "no_user"
+    except:
+        return "error"
+
 def cambiar_password(uid, np):
-    conn=get_connection();
-    if conn: conn.cursor().execute("UPDATE usuarios SET password=%s WHERE id=%s",(np, uid)); conn.commit(); conn.close(); return True; return False
+    conn = get_connection()
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute("UPDATE usuarios SET password=%s WHERE id=%s", (np, uid))
+            conn.commit()
+            conn.close()
+            return True
+        except:
+            pass
+    return False
 
 # --- 4. MODAL ---
 @st.dialog("Gestión de Carga")
