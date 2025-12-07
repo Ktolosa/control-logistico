@@ -3,3 +3,5 @@ pandas
 mysql-connector-python
 plotly
 streamlit-calendar>=0.5.0
+openpyxl
+xlsxwriter
