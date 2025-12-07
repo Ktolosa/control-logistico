@@ -75,7 +75,6 @@ dashboard_css = f"""
     .kpi-val {{ font-size: 1.5rem; color: #0f172a; font-weight: 800; }}
     .count-ok {{ color: #16a34a; font-weight: bold; font-size: 0.9rem; }}
     .count-err {{ color: #dc2626; font-weight: bold; font-size: 0.9rem; }}
-    .temu-header {{ font-weight: bold; color: #1e293b; margin-bottom: 5px; }}
 </style>
 """
 
@@ -195,6 +194,7 @@ def procesar_archivo_temu(uploaded_file):
         headers_costos = ["TRAKING", "PESO", "CLIENTE", "DESCRIPTION", "REF", "N° de SACO", "VALUE", "DAI", "IVA", "TOTAL IMPUESTOS", "COMISION", "MANEJO", "IVA COMISION", "IVA MANEJO", "TOTAL IVA", "TOTAL"]
 
         for master, group in grouped:
+            # 1. Manifiesto
             rows_main = []
             for _, row in group.iterrows():
                 r = [""] * 21
@@ -205,6 +205,7 @@ def procesar_archivo_temu(uploaded_file):
                 r[14]="1"; r[15]="0.45"; r[16]="0.01"; r[17]="N/A"; r[20]="N/A";
                 rows_main.append(r)
             
+            # 2. Costos
             rows_costos = []
             for _, row in group.iterrows():
                 c = [""] * 16
@@ -238,7 +239,7 @@ def to_excel_bytes(df, fmt='xlsx'):
     return output.getvalue()
 
 
-# --- FUNCIONES ADMIN (USUARIOS Y CLAVES) - CORREGIDO ---
+# --- FUNCIONES ADMIN ---
 def admin_crear_usuario(u, r):
     conn = get_connection()
     if conn:
@@ -522,9 +523,9 @@ else:
                 if error:
                     st.error(f"Error al procesar: {error}")
                 elif resultados:
-                    # TABLA RESUMEN PEQUEÑA AL PRINCIPIO
+                    # TABLA RESUMEN PEQUEÑA
                     st.subheader("📋 Resumen de Carga")
-                    st.dataframe(df_resumen, hide_index=True, use_container_width=False) # Tabla pequeña
+                    st.dataframe(df_resumen, hide_index=True, use_container_width=False)
                     
                     st.divider()
                     st.subheader("📁 Descargas Disponibles")
@@ -536,6 +537,10 @@ else:
 
                     for master, data in resultados.items():
                         with st.expander(f"📦 Master: {master} ({data['info']['paquetes']} paq)", expanded=False):
+                            
+                            # BARRA DE BÚSQUEDA INTERACTIVA
+                            search_q = st.text_input(f"🔍 Buscar en Master {master}", key=f"s_{master}", placeholder="Escribe para filtrar...")
+                            
                             c_main, c_cost = st.columns(2)
                             
                             c_main.download_button(
@@ -553,6 +558,17 @@ else:
                                 mime=mime_type,
                                 key=f"btn_cost_{master}"
                             )
+                            
+                            st.write("---")
+                            st.caption("Vista Previa del Manifiesto:")
+                            
+                            # FILTRO DINÁMICO
+                            df_display = data["main"]
+                            if search_q:
+                                mask = df_display.astype(str).apply(lambda x: x.str.contains(search_q, case=False, na=False)).any(axis=1)
+                                df_display = df_display[mask]
+                                
+                            st.dataframe(df_display, hide_index=True)
 
     elif vista == "user_settings":
         st.title("Configuración")
