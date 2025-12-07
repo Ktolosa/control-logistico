@@ -108,16 +108,12 @@ def verificar_login(u, p):
     except: return None
 
 def validar_admin_pass(password):
-    """Verifica si la contraseña ingresada pertenece a ALGÚN usuario Admin activo"""
     conn = get_connection()
     if not conn: return False
     try:
         cur = conn.cursor()
-        # Busca si existe algún admin activo con esa contraseña
         cur.execute("SELECT id FROM usuarios WHERE rol='admin' AND activo=1 AND password=%s", (password,))
-        res = cur.fetchone()
-        conn.close()
-        return True if res else False
+        res = cur.fetchone(); conn.close(); return True if res else False
     except: return False
 
 def cargar_datos():
@@ -133,7 +129,6 @@ def cargar_datos():
             df['Mes'] = df['fecha'].dt.month_name()
             df['Semana'] = df['fecha'].dt.isocalendar().week
             df['DiaSemana'] = df['fecha'].dt.day_name()
-            # Conteo simple basado en el texto
             def contar(t):
                 if not t: return 0
                 return len([p for p in re.split(r'[\n, ]+', str(t)) if p.strip()])
@@ -147,32 +142,22 @@ def guardar_registro(id_reg, fecha, prov, plat, serv, mast_str, paq, com):
         try:
             cur = conn.cursor()
             user = st.session_state['user_info']['username']
-            
-            # 1. Limpiar string para la tabla principal
             lista_masters = [m.strip() for m in re.split(r'[\n, ]+', mast_str) if m.strip()]
             clean_masters_str = " ".join(lista_masters)
-            
             registro_id = id_reg
-
             if id_reg is None:
-                # INSERT
                 sql = "INSERT INTO registro_logistica (fecha, proveedor_logistico, plataforma_cliente, tipo_servicio, master_lote, paquetes, comentarios, created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)"
                 cur.execute(sql, (fecha, prov, plat, serv, clean_masters_str, paq, com, user))
                 registro_id = cur.lastrowid
                 st.toast("✅ Guardado Exitosamente")
             else:
-                # UPDATE
                 sql = "UPDATE registro_logistica SET fecha=%s, proveedor_logistico=%s, plataforma_cliente=%s, tipo_servicio=%s, master_lote=%s, paquetes=%s, comentarios=%s WHERE id=%s"
                 cur.execute(sql, (fecha, prov, plat, serv, clean_masters_str, paq, com, id_reg))
-                # Borrar masters viejos de la tabla detalle para re-insertar los nuevos
                 cur.execute("DELETE FROM masters_detalle WHERE registro_id=%s", (id_reg,))
                 st.toast("✅ Registro Actualizado")
-
-            # 2. Insertar historial detallado en masters_detalle
             if lista_masters:
                 vals = [(registro_id, m, fecha) for m in lista_masters]
                 cur.executemany("INSERT INTO masters_detalle (registro_id, master_code, fecha_registro) VALUES (%s, %s, %s)", vals)
-
             conn.commit(); conn.close()
         except Exception as e: st.error(f"Error BD: {e}")
 
@@ -180,24 +165,19 @@ def eliminar_registro(id_reg, admin_pass):
     if not validar_admin_pass(admin_pass):
         st.error("🔒 Clave de administrador incorrecta.")
         return False
-    
     conn = get_connection()
     if conn:
         try:
             cur = conn.cursor()
-            # Al tener ON DELETE CASCADE en la BD, borrar el padre borra los hijos en masters_detalle
-            # Si no tienes FK configurada, hacemos manual:
             cur.execute("DELETE FROM masters_detalle WHERE registro_id=%s", (id_reg,)) 
             cur.execute("DELETE FROM registro_logistica WHERE id=%s", (id_reg,))
             conn.commit(); conn.close()
             st.toast("🗑️ Registro eliminado permanentemente")
             return True
-        except Exception as e: 
-            st.error(str(e))
-            return False
+        except Exception as e: st.error(str(e)); return False
     return False
 
-# Funciones Admin Auxiliares
+# Funciones Admin (Usuarios/Claves)
 def admin_crear_usuario(u, r):
     conn = get_connection(); 
     if conn:
@@ -210,6 +190,13 @@ def admin_get_users():
     return pd.read_sql("SELECT id, username, rol, activo FROM usuarios", conn) if conn else pd.DataFrame()
 def admin_toggle(uid, curr):
     conn = get_connection(); conn.cursor().execute("UPDATE usuarios SET activo=%s WHERE id=%s", (0 if curr==1 else 1, uid)); conn.commit(); conn.close()
+def admin_update_role(uid, new_role):
+    conn = get_connection()
+    if conn:
+        try:
+            conn.cursor().execute("UPDATE usuarios SET rol=%s WHERE id=%s", (new_role, uid))
+            conn.commit(); conn.close(); return True
+        except: pass; return False
 def admin_restablecer_password(rid, uname):
     conn = get_connection(); 
     if conn:
@@ -228,16 +215,14 @@ def cambiar_password(uid, np):
     if conn: conn.cursor().execute("UPDATE usuarios SET password=%s WHERE id=%s",(np, uid)); conn.commit(); conn.close(); return True;
     return False
 
-# --- 4. MODAL DE GESTIÓN (GUARDAR / EDITAR / ELIMINAR) ---
+# --- 4. MODAL DE GESTIÓN ---
 @st.dialog("Gestión de Carga")
 def modal_registro(datos=None):
     rol = st.session_state['user_info']['rol']
     disabled = (rol == 'analista')
-    
     d_fecha, d_prov, d_plat = date.today(), PROVEEDORES[0], PLATAFORMAS[0]
     d_serv, d_mast, d_paq, d_com, d_id = SERVICIOS[0], "", 0, "", None
     d_esp = 1
-
     if datos:
         d_id = datos.get('id')
         if datos.get('fecha_str'): d_fecha = datetime.strptime(datos['fecha_str'], '%Y-%m-%d').date()
@@ -248,7 +233,6 @@ def modal_registro(datos=None):
         d_paq = datos.get('paquetes', 0)
         d_com = datos.get('comentarios', "")
         d_esp = len([x for x in re.split(r'[\n, ]+', d_mast) if x.strip()]) or 1
-
     with st.form("frm"):
         c1, c2 = st.columns(2)
         with c1:
@@ -259,38 +243,27 @@ def modal_registro(datos=None):
             sin = st.selectbox("Servicio", SERVICIOS, index=SERVICIOS.index(d_serv) if d_serv in SERVICIOS else 0, disabled=disabled)
             pain = st.number_input("Total Paquetes", 0, value=int(d_paq), disabled=disabled)
             esperados = st.number_input("Masters Esperadas", min_value=1, value=d_esp, disabled=disabled)
-
         st.markdown("---")
         st.write("📋 **Masters (Pegar Bloque)**")
         min_ = st.text_area("Códigos separados por espacio/enter", d_mast, height=100, disabled=disabled)
-        
-        # Validación en tiempo real
         lista_masters = [m for m in re.split(r'[\n, ]+', min_) if m.strip()]
         conteo_actual = len(lista_masters)
         col_val1, col_val2 = st.columns(2)
         col_val1.caption(f"Detectadas: {conteo_actual}")
         if conteo_actual == esperados: col_val2.markdown(f"<span class='count-ok'>✅ Cuadra</span>", unsafe_allow_html=True)
         else: col_val2.markdown(f"<span class='count-err'>⚠️ Diferencia: {conteo_actual - esperados}</span>", unsafe_allow_html=True)
-
         com = st.text_area("Notas", d_com, disabled=disabled)
-        
-        col_btn1, col_btn2 = st.columns([1, 1])
-        
-        with col_btn1:
-            if not disabled:
-                if st.form_submit_button("💾 Guardar / Actualizar", type="primary", use_container_width=True):
-                    guardar_registro(d_id, fin, pin, clin, sin, min_, pain, com)
-                    st.rerun()
-
-    # --- ZONA DE PELIGRO: ELIMINAR ---
+        if not disabled:
+            if st.form_submit_button("💾 Guardar / Actualizar", type="primary", use_container_width=True):
+                guardar_registro(d_id, fin, pin, clin, sin, min_, pain, com)
+                st.rerun()
     if d_id is not None and not disabled:
         st.markdown("---")
         with st.expander("🗑️ Eliminar este Registro"):
             st.warning("Esta acción es irreversible.")
-            del_pass = st.text_input("Ingresa contraseña de Administrador para confirmar:", type="password")
+            del_pass = st.text_input("Ingresa contraseña de Administrador:", type="password")
             if st.button("Confirmar Eliminación", type="secondary"):
-                if eliminar_registro(d_id, del_pass):
-                    st.rerun()
+                if eliminar_registro(d_id, del_pass): st.rerun()
 
 # ==============================================================================
 #  INTERFAZ PRINCIPAL
@@ -372,71 +345,46 @@ else:
                 search_master = c_search.text_input("🔍 Buscar Master Exacta", placeholder="Escribe el código...")
                 min_d, max_d = df['fecha'].min().date(), df['fecha'].max().date()
                 rango = c_date.date_input("Rango", [min_d, max_d])
-
-            # Filtrado inteligente
             df_fil = df.copy()
-            
-            # --- BÚSQUEDA DE MASTER EN EL HISTORIAL DETALLADO ---
             if search_master:
                 conn = get_connection()
                 try:
-                    # Buscamos en la tabla de detalle (masters_detalle)
                     q = f"SELECT registro_id, fecha_registro FROM masters_detalle WHERE master_code LIKE '%{search_master}%'"
                     df_masters_found = pd.read_sql(q, conn)
                     conn.close()
-                    
                     if not df_masters_found.empty:
-                        # Filtramos el dataframe principal usando los IDs encontrados
-                        ids_encontrados = df_masters_found['registro_id'].unique()
-                        df_fil = df_fil[df_fil['id'].isin(ids_encontrados)]
-                        
-                        st.success(f"✅ Master '{search_master}' encontrada en {len(df_fil)} viaje(s).")
-                        # Mostrar detalle específico de llegada
-                        st.write("📅 **Fechas de llegada detectadas:**")
+                        df_fil = df_fil[df_fil['id'].isin(df_masters_found['registro_id'].unique())]
+                        st.success(f"✅ Encontrada en {len(df_fil)} viaje(s).")
                         st.dataframe(df_masters_found[['master_code', 'fecha_registro']], hide_index=True)
                     else:
-                        st.error(f"❌ Master '{search_master}' no encontrada en el historial.")
-                        df_fil = pd.DataFrame() # Vacío
-                except: st.error("Error consultando detalle de masters.")
-
+                        st.error("❌ No encontrada.")
+                        df_fil = pd.DataFrame()
+                except: pass
             elif len(rango) == 2:
                 df_fil = df_fil[(df_fil['fecha'].dt.date >= rango[0]) & (df_fil['fecha'].dt.date <= rango[1])]
-
             st.divider()
-
             if not df_fil.empty:
                 k1, k2, k3, k4 = st.columns(4)
                 k1.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>Paquetes</div><div class='kpi-val'>{df_fil['paquetes'].sum():,.0f}</div></div>", unsafe_allow_html=True)
                 k2.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>Masters Reales</div><div class='kpi-val'>{df_fil['conteo_masters_real'].sum():,.0f}</div></div>", unsafe_allow_html=True)
                 k3.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>Viajes</div><div class='kpi-val'>{len(df_fil)}</div></div>", unsafe_allow_html=True)
                 k4.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>Promedio</div><div class='kpi-val'>{df_fil['paquetes'].mean():,.0f}</div></div>", unsafe_allow_html=True)
-
                 st.write("")
                 tab1, tab2, tab3 = st.tabs(["📅 Resumen Semanal", "📊 Gráficos", "📥 Matriz"])
-                
                 with tab1:
                     st.subheader("Resumen Semanal de Operaciones")
                     resumen = df_fil.groupby(['Año', 'Semana', 'Mes']).agg(
-                        Paquetes=('paquetes', 'sum'),
-                        Masters=('conteo_masters_real', 'sum'),
-                        Viajes=('id', 'count')
+                        Paquetes=('paquetes', 'sum'), Masters=('conteo_masters_real', 'sum'), Viajes=('id', 'count')
                     ).reset_index()
                     def get_week_dates(year, week):
-                        d = date.fromisocalendar(year, week, 1)
-                        return f"{d.strftime('%d-%b')} al {(d + timedelta(days=6)).strftime('%d-%b')}"
+                        d = date.fromisocalendar(year, week, 1); return f"{d.strftime('%d-%b')} al {(d + timedelta(days=6)).strftime('%d-%b')}"
                     resumen['Rango'] = resumen.apply(lambda x: get_week_dates(x['Año'], x['Semana']), axis=1)
                     resumen = resumen[['Año', 'Semana', 'Mes', 'Rango', 'Viajes', 'Masters', 'Paquetes']]
                     st.dataframe(resumen, use_container_width=True, hide_index=True)
-
                 with tab2:
                     g1, g2 = st.columns(2)
-                    with g1:
-                        fig = px.bar(df_fil.groupby('fecha')['paquetes'].sum().reset_index(), x='fecha', y='paquetes')
-                        st.plotly_chart(fig, use_container_width=True)
-                    with g2:
-                        fig2 = px.pie(df_fil, names='proveedor_logistico', values='paquetes', hole=0.5)
-                        st.plotly_chart(fig2, use_container_width=True)
-
+                    with g1: st.plotly_chart(px.bar(df_fil.groupby('fecha')['paquetes'].sum().reset_index(), x='fecha', y='paquetes'), use_container_width=True)
+                    with g2: st.plotly_chart(px.pie(df_fil, names='proveedor_logistico', values='paquetes', hole=0.5), use_container_width=True)
                 with tab3:
                     st.dataframe(df_fil, use_container_width=True)
                     csv = df_fil.to_csv(index=False).encode('utf-8')
@@ -463,10 +411,26 @@ else:
                 if st.form_submit_button("Crear"): 
                     if admin_crear_usuario(nu, nr): st.success("Creado")
         with t2:
-            df_u = admin_get_users(); st.dataframe(df_u, use_container_width=True)
-            c1, c2 = st.columns(2)
-            uid = c1.selectbox("ID", df_u['id'].tolist() if not df_u.empty else [])
-            if uid and c2.button("Toggle"): admin_toggle(uid, df_u[df_u['id']==uid]['activo'].values[0]); st.rerun()
+            df_u = admin_get_users()
+            st.dataframe(df_u, use_container_width=True)
+            if not df_u.empty:
+                c1, c2, c3 = st.columns(3)
+                uid = c1.selectbox("Seleccionar Usuario", df_u['id'].tolist())
+                if uid:
+                    current_user_data = df_u[df_u['id'] == uid].iloc[0]
+                    current_role = current_user_data['rol']
+                    current_active = current_user_data['activo']
+                    
+                    # Editar Rol
+                    new_role = c2.selectbox("Cambiar Rol", ["user", "analista", "admin"], index=["user", "analista", "admin"].index(current_role))
+                    if c2.button("💾 Actualizar Rol"):
+                        if admin_update_role(uid, new_role): st.success("Rol actualizado"); st.rerun()
+                        else: st.error("Error")
+
+                    # Reactivar / Desactivar
+                    btn_lbl = "🔴 Desactivar" if current_active == 1 else "🟢 Reactivar"
+                    if c3.button(btn_lbl):
+                        admin_toggle(uid, current_active); st.rerun()
 
     elif vista == "admin_reqs":
         st.title("Claves")
