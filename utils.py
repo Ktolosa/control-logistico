@@ -7,7 +7,6 @@ from pyzbar.pyzbar import decode
 
 # --- CONSTANTES ---
 APP_BASE_URL = "https://control-logistico-ifjfvph3s8ybga46f5bdfb.streamlit.app"
-AVATARS = {"avatar_1": "👨‍💼", "avatar_2": "👩‍💼", "avatar_3": "👷‍♂️", "avatar_4": "👩‍💻"} 
 PROVEEDORES = ["Mail Americas", "APG", "IMILE", "GLC"]
 PLATAFORMAS = ["AliExpress", "Shein", "Temu"]
 SERVICIOS = ["Aduana Propia", "Solo Ultima Milla"]
@@ -54,37 +53,63 @@ def to_excel_bytes(df, fmt='xlsx'):
             df.to_excel(w, index=False, sheet_name='Sheet1')
     return out.getvalue()
 
-# --- CSS GLOBAL ---
-def load_css():
-    st.markdown("""
+# --- CSS GLOBAL DINÁMICO ---
+def load_css(tema="light"):
+    # Definición de paletas
+    if tema == "dark":
+        bg_color = "#1e1e1e"
+        text_color = "#e0e0e0"
+        card_bg = "#333333"
+        btn_bg = "#444444"
+        btn_text = "#ffffff"
+    elif tema == "blue":
+        bg_color = "#e3f2fd"
+        text_color = "#0d47a1"
+        card_bg = "#ffffff"
+        btn_bg = "#bbdefb"
+        btn_text = "#0d47a1"
+    else: # Light (Default)
+        bg_color = "#f8fafc"
+        text_color = "#1e293b"
+        card_bg = "#ffffff"
+        btn_bg = "#ffffff"
+        btn_text = "#1e293b"
+
+    st.markdown(f"""
     <style>
-        [data-testid="stSidebarNav"], [data-testid="stToolbar"], footer { display: none !important; }
-        .stApp { background-color: #f8fafc; font-family: 'Segoe UI', sans-serif; }
+        [data-testid="stSidebarNav"], [data-testid="stToolbar"], footer {{ display: none !important; }}
+        .stApp {{ background-color: {bg_color}; font-family: 'Segoe UI', sans-serif; color: {text_color}; }}
+        
+        /* Ajuste de textos globales */
+        h1, h2, h3, p, div, span, label, li {{ color: {text_color}; }}
         
         /* BOTONES MENU HOME */
-        .menu-btn {
+        .menu-btn {{
             width: 100%; height: 100px !important;
             border: 1px solid #e2e8f0; border-radius: 15px;
-            background-color: white; color: #1e293b;
+            background-color: {btn_bg}; color: {btn_text};
             font-size: 18px; font-weight: 600;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             box-shadow: 0 4px 6px rgba(0,0,0,0.05); transition: all 0.2s; margin-bottom: 15px;
-        }
-        .menu-btn:hover { transform: translateY(-3px); box-shadow: 0 10px 15px rgba(0,0,0,0.1); border-color: #3b82f6; }
+        }}
+        .menu-btn:hover {{ transform: translateY(-3px); box-shadow: 0 10px 15px rgba(0,0,0,0.1); border-color: #3b82f6; }}
         
         /* BOTÓN VOLVER */
-        div.stButton > button:first-child { width: 100%; border-radius: 10px; font-weight: 600; }
+        div.stButton > button:first-child {{ width: 100%; border-radius: 10px; font-weight: 600; }}
         
         /* KPIs */
-        .kpi-card { background: white; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 10px; }
-        .kpi-val { font-size: 1.4rem; font-weight: 800; color: #0f172a; }
-        .kpi-lbl { font-size: 0.75rem; color: #64748b; font-weight: 700; text-transform: uppercase; }
+        .kpi-card {{ background: {card_bg}; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 10px; }}
+        .kpi-val {{ font-size: 1.4rem; font-weight: 800; color: {text_color}; }}
+        .kpi-lbl {{ font-size: 0.75rem; color: #64748b; font-weight: 700; text-transform: uppercase; }}
         
         /* ALERTAS */
-        .count-ok { color: #16a34a; font-weight: bold; background:#dcfce7; padding:4px 8px; border-radius:6px; }
-        .count-err { color: #dc2626; font-weight: bold; background:#fee2e2; padding:4px 8px; border-radius:6px; }
+        .count-ok {{ color: #16a34a; font-weight: bold; background:#dcfce7; padding:4px 8px; border-radius:6px; }}
+        .count-err {{ color: #dc2626; font-weight: bold; background:#fee2e2; padding:4px 8px; border-radius:6px; }}
+        
+        /* INPUTS EN MODO OSCURO */
+        input, select, textarea {{ background-color: {card_bg} !important; color: {text_color} !important; }}
         
         /* Sidebar (Info Usuario) */
-        section[data-testid="stSidebar"] { width: 250px !important; }
+        section[data-testid="stSidebar"] {{ width: 250px !important; }}
     </style>
     """, unsafe_allow_html=True)
