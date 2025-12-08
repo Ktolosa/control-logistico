@@ -3,15 +3,16 @@ import utils
 from modules import calendario, analytics, gestor_temu, pod_digital, admin, configuracion
 import pandas as pd
 import io
+from PIL import Image # Importante para la foto
 
 # 1. CONFIGURACIÓN INICIAL
 st.set_page_config(page_title="Nexus Logística", layout="wide", initial_sidebar_state="collapsed")
 
-# 2. CARGAR CSS (DINÁMICO)
+# 2. CARGAR CSS (Con Tema)
 if 'user_theme' not in st.session_state: st.session_state['user_theme'] = 'light'
 utils.load_css(st.session_state['user_theme'])
 
-# 3. INTERCEPTOR QR
+# 3. INTERCEPTOR QR (POD DESCAGRA)
 qp = st.query_params
 if "pod_uuid" in qp:
     st.set_page_config(layout="centered", page_title="Descarga POD")
@@ -23,7 +24,6 @@ if "pod_uuid" in qp:
         df_items = pd.read_sql(q, conn, params=(uuid_target,))
         q_info = "SELECT cliente, fecha, pod_code FROM pods WHERE uuid = %s"
         df_info = pd.read_sql(q_info, conn, params=(uuid_target,))
-        conn.close()
         if not df_items.empty:
             p_code = df_info.iloc[0]['pod_code']
             st.success(f"✅ POD {p_code} Encontrada ({len(df_items)} paq).")
@@ -41,13 +41,14 @@ if not st.session_state['logged_in']:
     st.markdown("<div style='height: 50px'></div><h2 style='text-align:center;'>Nexus Logística</h2>", unsafe_allow_html=True)
     c1,c2,c3 = st.columns([1,2,1])
     with c2:
-        u = st.text_input("Usuario"); p = st.text_input("Contraseña", type="password")
+        u = st.text_input("Usuario")
+        p = st.text_input("Contraseña", type="password")
         if st.button("Ingresar", use_container_width=True, type="primary"):
             usr = utils.verificar_login(u, p)
             if usr: 
                 st.session_state['logged_in']=True
                 st.session_state['user_info']=usr
-                # CARGAR TEMA PREFERIDO
+                # Guardar preferencia de tema en sesión
                 st.session_state['user_theme'] = usr.get('tema', 'light')
                 st.rerun()
             else: st.error("Credenciales inválidas")
@@ -65,20 +66,13 @@ if not st.session_state['logged_in']:
                             conn.commit(); st.success("Solicitud enviada")
                         except: st.warning("Ya existe una solicitud pendiente")
                     else: st.warning("Usuario no existe")
-                    conn.close()
     st.stop()
 
-# 5. MENÚ Y NAVEGACIÓN
+# 5. MENÚ PRINCIPAL
 u_info = st.session_state['user_info']
 rol = u_info['rol']
 
-with st.sidebar:
-    st.markdown(f"<h1 style='text-align:center'>👤</h1>", unsafe_allow_html=True)
-    st.markdown(f"<div style='text-align:center'>{u_info['username']}</div><hr>", unsafe_allow_html=True)
-    # BOTÓN SALIR SIDEBAR (Opcional, ya que lo agregamos en Configuración)
-    if st.button("🚪 Cerrar Sesión", use_container_width=True):
-        st.session_state.clear(); st.rerun()
-
+# Definición del Menú
 MENU = {
     "calendar": {"title": "Calendario", "icon": "📅", "mod": calendario, "roles": ["all"]},
     "analytics": {"title": "Analytics", "icon": "📈", "mod": analytics, "roles": ["all"]},
@@ -93,14 +87,46 @@ def count_pending():
     if conn:
         try: 
             cur = conn.cursor(); cur.execute("SELECT COUNT(*) FROM password_requests WHERE status='pendiente'")
-            c = cur.fetchone()[0]; conn.close(); return c
+            res = cur.fetchone()
+            return res[0] if res else 0
         except: return 0
     return 0
 
 if 'current_view' not in st.session_state: st.session_state['current_view'] = "menu"
 
+# VISTA DE MENÚ (Aquí integramos el perfil en el encabezado)
 if st.session_state['current_view'] == "menu":
-    st.title("Panel Principal")
+    
+    # --- ENCABEZADO PERFIL INICIO ---
+    with st.container():
+        c_perfil, c_info, c_logout = st.columns([1, 4, 1])
+        
+        # Columna Foto
+        with c_perfil:
+            if u_info.get('avatar') and isinstance(u_info['avatar'], bytes):
+                try:
+                    image = Image.open(io.BytesIO(u_info['avatar']))
+                    st.image(image, width=90) # Ajusta el tamaño aquí
+                except: st.header("👤")
+            else:
+                st.header("👤")
+        
+        # Columna Saludo
+        with c_info:
+            st.subheader(f"Hola, {u_info['username']}")
+            st.caption(f"Rol: {rol.capitalize()} | {st.session_state.get('user_theme','light').capitalize()}")
+            
+        # Columna Salir
+        with c_logout:
+            st.write("") # Espacio para bajar el botón
+            if st.button("🚪 Salir", key="top_logout"):
+                st.session_state.clear()
+                st.rerun()
+    
+    st.divider()
+    # --- FIN ENCABEZADO ---
+
+    # Renderizado de Botones
     pending = 0
     if rol == 'admin': pending = count_pending()
     
@@ -113,12 +139,13 @@ if st.session_state['current_view'] == "menu":
             if k == "admin" and pending > 0:
                 label = f"🔴 {pending} Pendientes\n{MENU[k]['title']}"
             
-            if st.button(label, key=k, use_container_width=True):
+            if st.button(label, key=f"btn_{k}", use_container_width=True):
                 st.session_state['current_view'] = k
                 st.rerun()
 
 else:
-    if st.button("⬅️ VOLVER AL MENÚ"): 
+    # VISTA DE MÓDULOS (Botón volver y carga del módulo)
+    if st.button("⬅️ VOLVER AL INICIO"): 
         st.session_state['current_view'] = "menu"
         st.rerun()
     
