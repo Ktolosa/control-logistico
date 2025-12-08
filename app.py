@@ -18,49 +18,77 @@ st.set_page_config(
     initial_sidebar_state="expanded" 
 )
 
+# ---------------------------------------------------------
+# ⚠️ CONFIGURACIÓN CRÍTICA DEL QR
+# Copia aquí la URL exacta que aparece en tu navegador cuando usas la app
+# Ejemplo: "https://control-logistico-ifjfvph3s8ybga46f5bdfb.streamlit.app/"
+# ---------------------------------------------------------
+APP_BASE_URL = "https://control-logistico-ifjfvph3s8ybga46f5bdfb.streamlit.app" 
+# (He puesto la URL que vi en tu mensaje anterior, verifícala)
+
 # --- LÓGICA DE DESCARGA VÍA QR (INTERCEPTOR) ---
+# Esta sección se ejecuta ANTES de pedir login si se detecta un QR
 query_params = st.query_params
 if "pod_uuid" in query_params:
     st.set_page_config(layout="centered", page_title="Descarga POD")
     uuid_target = query_params["pod_uuid"]
     
-    st.markdown("<br><br><h1 style='text-align:center;'>📦 Descarga de POD</h1>", unsafe_allow_html=True)
+    st.markdown("<br><br><h1 style='text-align:center;'>📦 Descarga de Paquetes POD</h1>", unsafe_allow_html=True)
     
     try:
         conn = mysql.connector.connect(
             host=st.secrets["mysql"]["host"], user=st.secrets["mysql"]["user"],
             password=st.secrets["mysql"]["password"], database=st.secrets["mysql"]["database"]
         )
+        # Traemos trackings
         q = "SELECT tracking FROM pod_items WHERE pod_uuid = %s"
         df_items = pd.read_sql(q, conn, params=(uuid_target,))
+        
+        # Traemos info general para el nombre del archivo
+        q_info = "SELECT cliente, fecha FROM pods WHERE uuid = %s"
+        df_info = pd.read_sql(q_info, conn, params=(uuid_target,))
         conn.close()
         
         if not df_items.empty:
+            cliente_nom = df_info.iloc[0]['cliente']
+            fecha_nom = df_info.iloc[0]['fecha'].strftime('%Y-%m-%d')
+            
             st.success(f"✅ POD Encontrada: {len(df_items)} paquetes.")
+            st.info("Haz clic abajo para descargar el listado en Excel.")
+            
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 df_items.to_excel(writer, index=False, sheet_name='Paquetes')
+                # Ajustar ancho de columna
+                worksheet = writer.sheets['Paquetes']
+                worksheet.set_column('A:A', 30)
             
             st.download_button(
-                label="📥 DESCARGAR LISTADO DE PAQUETES (Excel)",
+                label="📥 DESCARGAR EXCEL DE TRACKINGS",
                 data=output.getvalue(),
-                file_name=f"POD_{uuid_target}.xlsx",
+                file_name=f"Listado_POD_{cliente_nom}_{fecha_nom}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 type="primary",
                 use_container_width=True
             )
         else:
-            st.error("❌ POD no encontrada o expirada.")
+            st.error("❌ POD no encontrada o el enlace ha expirado.")
+            st.warning("Verifica que el código QR sea correcto.")
     except Exception as e:
         st.error(f"Error de conexión: {e}")
-    st.stop()
+    
+    st.markdown("---")
+    if st.button("Ir al Inicio de Sesión"):
+        st.query_params.clear()
+        st.rerun()
+    st.stop() # Detiene la app aquí para el usuario del QR
 
 # --- ESTADO NORMAL DE LA APP ---
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_info' not in st.session_state: st.session_state['user_info'] = None
 if 'current_view' not in st.session_state: st.session_state['current_view'] = "calendar"
 
-# --- 2. CSS (DISEÑO LIGHT & SLIM) ---
+# --- 2. CSS ---
 SIDEBAR_WIDTH = "60px"
 
 base_css = """
@@ -139,7 +167,7 @@ def get_connection():
         )
     except: return None
 
-# --- CREACIÓN TABLAS POD (SI NO EXISTEN) ---
+# --- CREACIÓN TABLAS POD ---
 try:
     conn_tmp = get_connection()
     if conn_tmp:
@@ -150,7 +178,7 @@ try:
         conn_tmp.close()
 except: pass
 
-# --- FUNCIONES LÓGICAS GENERALES ---
+# --- FUNCIONES LÓGICAS ---
 def verificar_login(u, p):
     conn = get_connection()
     if not conn: return None
@@ -229,7 +257,6 @@ def eliminar_registro(id_reg, admin_pass):
         except Exception as e: st.error(str(e)); return False
     return False
 
-# --- LOGICA TEMU MANAGER ---
 def procesar_archivo_temu(uploaded_file):
     try:
         df_raw = pd.read_excel(uploaded_file, header=None).fillna("")
@@ -297,52 +324,108 @@ def guardar_pod_digital(cliente, ruta, responsable, paq_dec, bultos, trackings, 
 def generar_pdf_pod(data, pod_uuid):
     pdf = FPDF()
     pdf.add_page()
-    blue = (37, 99, 235)
-    pdf.set_fill_color(*blue)
-    pdf.rect(0, 0, 210, 35, 'F')
-    pdf.set_text_color(255, 255, 255)
-    pdf.set_font("Arial", 'B', 22)
-    pdf.text(15, 20, "MANIFIESTO / POD")
-    pdf.set_font("Arial", '', 10)
-    pdf.text(15, 28, f"ID: {pod_uuid} | Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     
-    # QR apuntando a la app
-    base_url = "https://control-logistico.streamlit.app" 
-    qr_data = f"{base_url}/?pod_uuid={pod_uuid}"
+    # 1. ENCABEZADO MEJORADO
+    # Fondo Azul Cabecera
+    pdf.set_fill_color(37, 99, 235) # Azul corporativo
+    pdf.rect(0, 0, 210, 40, 'F')
+    
+    # Título Principal
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Arial", 'B', 24)
+    pdf.text(10, 18, "MANIFIESTO / POD")
+    
+    # Subtítulo (Fecha y ID)
+    pdf.set_font("Arial", '', 10)
+    pdf.text(10, 28, f"ID: {pod_uuid}")
+    pdf.text(10, 34, f"Generado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # QR Code (Derecha Arriba)
+    qr_data = f"{APP_BASE_URL}/?pod_uuid={pod_uuid}"
     qr = qrcode.make(qr_data)
     qr.save(f"qr_{pod_uuid}.png")
-    pdf.image(f"qr_{pod_uuid}.png", 170, 5, 25, 25)
+    # Cuadro blanco fondo QR
+    pdf.set_fill_color(255, 255, 255)
+    pdf.rounded_rect(170, 5, 30, 30, 2, 'F')
+    pdf.image(f"qr_{pod_uuid}.png", 172, 7, 26, 26)
     
-    pdf.set_text_color(0, 0, 0)
+    # 2. INFORMACIÓN GENERAL (Estilo Grid)
     pdf.set_y(50)
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(95, 10, f"Cliente: {data['cliente']}", 0, 0)
-    pdf.cell(95, 10, f"Responsable: {data['responsable']}", 0, 1)
-    pdf.cell(190, 10, f"Ruta: {data['ruta']}", 0, 1)
+    pdf.set_text_color(0, 0, 0)
+    
+    # Fila 1
+    pdf.set_font("Arial", 'B', 11)
+    pdf.cell(30, 8, "CLIENTE:", 0, 0)
+    pdf.set_font("Arial", '', 11)
+    pdf.cell(70, 8, data['cliente'], 0, 0)
+    
+    pdf.set_font("Arial", 'B', 11)
+    pdf.cell(35, 8, "RESPONSABLE:", 0, 0)
+    pdf.set_font("Arial", '', 11)
+    pdf.cell(60, 8, data['responsable'], 0, 1)
+    
+    # Fila 2
+    pdf.set_font("Arial", 'B', 11)
+    pdf.cell(30, 8, "RUTA:", 0, 0)
+    pdf.set_font("Arial", '', 11)
+    pdf.cell(165, 8, data['ruta'], 0, 1)
     
     pdf.ln(5)
-    pdf.set_fill_color(240, 240, 240)
-    pdf.cell(60, 10, "Paquetes Reales", 1, 0, 'C', 1)
-    pdf.cell(60, 10, "Bultos (Sacos)", 1, 0, 'C', 1)
-    pdf.cell(70, 10, "Estado", 1, 1, 'C', 1)
     
-    pdf.set_font("Arial", '', 12)
-    pdf.cell(60, 10, str(len(data['trackings'])), 1, 0, 'C')
-    pdf.cell(60, 10, str(data['bultos']), 1, 0, 'C')
-    pdf.cell(70, 10, "Completado", 1, 1, 'C')
+    # 3. TABLA DE RESUMEN
+    # Encabezados
+    pdf.set_fill_color(240, 240, 240) # Gris claro
+    pdf.set_font("Arial", 'B', 10)
+    pdf.cell(65, 10, "PAQUETES REALES", 1, 0, 'C', 1)
+    pdf.cell(65, 10, "BULTOS / SACOS", 1, 0, 'C', 1)
+    pdf.cell(60, 10, "ESTADO", 1, 1, 'C', 1)
+    
+    # Datos
+    pdf.set_font("Arial", '', 14) # Grande para números
+    pdf.cell(65, 15, str(len(data['trackings'])), 1, 0, 'C')
+    pdf.cell(65, 15, str(data['bultos']), 1, 0, 'C')
+    pdf.set_font("Arial", 'B', 12)
+    pdf.set_text_color(22, 163, 74) # Verde éxito
+    pdf.cell(60, 15, "ENTREGADO", 1, 1, 'C')
+    pdf.set_text_color(0, 0, 0)
+    
+    pdf.ln(10)
+    
+    # 4. AREA DE FIRMAS
+    y_firmas = pdf.get_y()
+    
+    # Caja Firma 1 (Entregado por - Digital)
+    pdf.set_font("Arial", 'B', 10)
+    pdf.text(10, y_firmas, "ENTREGADO POR (FIRMA DIGITAL):")
     
     if data['firma_img'] is not None:
-        pdf.ln(20)
-        pdf.text(15, pdf.get_y(), "Firma Digital:")
         from PIL import Image
+        import numpy as np
         img_data = data['firma_img'].image_data
         im = Image.fromarray(img_data.astype('uint8'), mode='RGBA')
-        im.save("temp_sig.png")
-        pdf.image("temp_sig.png", 15, pdf.get_y()+5, 50, 30)
+        
+        # Fondo blanco para la firma (para que se vea bien en PDF)
+        bg = Image.new("RGB", im.size, (255, 255, 255))
+        bg.paste(im, mask=im.split()[3])
+        bg.save("temp_sig.png")
+        
+        pdf.image("temp_sig.png", 10, y_firmas + 5, 80, 40)
+        pdf.rect(10, y_firmas + 5, 80, 40) # Borde
+    else:
+        pdf.rect(10, y_firmas + 5, 80, 40) # Caja vacía
+        pdf.text(20, y_firmas + 25, "(Sin Firma Digital)")
+
+    # Caja Firma 2 (Recibido por)
+    pdf.text(110, y_firmas, "RECIBIDO POR:")
+    pdf.rect(110, y_firmas + 5, 80, 40)
     
+    pdf.ln(50)
+    pdf.set_font("Arial", 'I', 8)
+    pdf.cell(0, 10, "Este documento certifica la entrega de la carga descrita. Escanee el QR para descargar el detalle.", 0, 1, 'C')
+
     return pdf.output(dest='S').encode('latin-1')
 
-# --- FUNCIONES ADMIN CORREGIDAS (DESPLEGADAS) ---
+# --- FUNCIONES ADMIN ---
 def admin_crear_usuario(u, r):
     conn = get_connection()
     if conn:
@@ -639,7 +722,7 @@ else:
                             if search_q: df_disp = df_disp[df_disp.astype(str).apply(lambda x: x.str.contains(search_q, case=False, na=False)).any(axis=1)]
                             st.dataframe(df_disp, hide_index=True)
 
-    # --- NUEVA VISTA: POD DIGITAL (CORREGIDO) ---
+    # --- NUEVA VISTA: POD DIGITAL ---
     elif vista == "pod_digital":
         st.title("📝 POD Digital")
         st.markdown("Generación de Manifiestos de Entrega y Firma Digital.")
@@ -698,20 +781,33 @@ else:
                         st.success("✅ POD Guardada con éxito.")
                         pdf_bytes = generar_pdf_pod(data_pod, uuid_pod)
                         
-                        # GUARDAR EN SESSION STATE PARA PERSISTENCIA Y DESCARGA
+                        # GUARDAR EN SESSION STATE PARA PERSISTENCIA
                         st.session_state['last_pod_pdf'] = pdf_bytes
                         st.session_state['last_pod_name'] = f"POD_{cliente}_{date.today()}.pdf"
+                        
+                        # GENERAR EXCEL TAMBIÉN
+                        df_excel = pd.DataFrame(trackings_list, columns=["Tracking"])
+                        excel_bytes = to_excel_bytes(df_excel, 'xlsx')
+                        st.session_state['last_pod_excel'] = excel_bytes
+                        st.session_state['last_pod_excel_name'] = f"Listado_{cliente}_{date.today()}.xlsx"
                     else:
                         st.error(f"Error al guardar: {error}")
 
-            # MOSTRAR BOTÓN DE DESCARGA SI EXISTE EL ARCHIVO GENERADO
+            # MOSTRAR BOTONES DE DESCARGA SI EXISTEN ARCHIVOS
             if 'last_pod_pdf' in st.session_state:
-                st.download_button(
+                c_pdf, c_xls = st.columns(2)
+                c_pdf.download_button(
                     label="📥 DESCARGAR PDF CON QR",
                     data=st.session_state['last_pod_pdf'],
                     file_name=st.session_state['last_pod_name'],
                     mime="application/pdf",
                     type="primary"
+                )
+                c_xls.download_button(
+                    label="📊 DESCARGAR EXCEL",
+                    data=st.session_state['last_pod_excel'],
+                    file_name=st.session_state['last_pod_excel_name'],
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
         with tab_hist:
