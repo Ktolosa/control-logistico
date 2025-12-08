@@ -32,7 +32,9 @@ APP_BASE_URL = "https://control-logistico-ifjfvph3s8ybga46f5bdfb.streamlit.app"
 # --- INTERCEPTOR DE DESCARGA (QR) ---
 query_params = st.query_params
 if "pod_uuid" in query_params:
+    st.set_page_config(layout="centered", page_title="Descarga POD")
     uuid_target = query_params["pod_uuid"]
+    
     st.markdown("<br><h2 style='text-align:center;'>📦 Descarga POD</h2>", unsafe_allow_html=True)
     
     try:
@@ -49,7 +51,6 @@ if "pod_uuid" in query_params:
         if not df_items.empty:
             cliente_nom = df_info.iloc[0]['cliente']
             pod_code_nom = df_info.iloc[0]['pod_code']
-            fecha_nom = df_info.iloc[0]['fecha'].strftime('%Y-%m-%d')
             st.success(f"✅ POD {pod_code_nom} Encontrada ({len(df_items)} paq).")
             
             output = io.BytesIO()
@@ -72,52 +73,86 @@ if "pod_uuid" in query_params:
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_info' not in st.session_state: st.session_state['user_info'] = None
 if 'current_view' not in st.session_state: st.session_state['current_view'] = "calendar"
-# Variables persistentes
 for key in ['last_pod_pdf', 'last_pod_name', 'last_pod_excel', 'last_pod_excel_name', 'scanned_trackings']:
     if key not in st.session_state:
         st.session_state[key] = [] if key == 'scanned_trackings' else None
+if 'scan_buffer_modal' not in st.session_state: st.session_state['scan_buffer_modal'] = []
 
-# --- 2. CSS ESTABLE (LIMPIO Y FUNCIONAL) ---
-st.markdown("""
+# --- 2. CSS ESTABLE ---
+SIDEBAR_DESKTOP_WIDTH = "70px"
+
+base_css = """
 <style>
-    /* Ocultar elementos innecesarios */
-    [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stHeader"], footer { visibility: hidden !important; }
-    
-    /* Estilo General */
+    [data-testid="stSidebarNav"] { display: none !important; }
+    [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stHeader"], footer { display: none !important; }
     .stApp { background-color: #f8fafc; font-family: 'Segoe UI', sans-serif; }
-    
-    /* Login Centrado */
-    .login-container {
-        max-width: 400px; margin: 0 auto; padding-top: 50px; text-align: center;
-    }
-    
-    /* Barra Lateral Estilizada (Nativa) */
-    [data-testid="stSidebar"] {
-        background-color: #ffffff;
-        border-right: 1px solid #e2e8f0;
-    }
-    
-    /* Botones del Menú (Radio) */
-    .stRadio > div { gap: 10px; }
-    .stRadio label {
-        background: transparent; padding: 10px; border-radius: 8px; cursor: pointer; transition: 0.2s;
-        border: 1px solid transparent; width: 100%; display: flex; align-items: center;
-    }
-    .stRadio label:hover { background: #f1f5f9; }
-    
-    /* KPIs */
-    .kpi-card {
-        background: white; padding: 15px; border-radius: 12px;
-        border: 1px solid #e2e8f0; margin-bottom: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.02);
-    }
-    .kpi-lbl { font-size: 0.8rem; color: #64748b; font-weight: 700; text-transform: uppercase; }
-    .kpi-val { font-size: 1.6rem; font-weight: 800; color: #0f172a; }
-    
-    /* Alertas Validación */
-    .count-ok { color: #16a34a; font-weight: bold; background:#dcfce7; padding:4px 8px; border-radius:6px; display:inline-block; }
-    .count-err { color: #dc2626; font-weight: bold; background:#fee2e2; padding:4px 8px; border-radius:6px; display:inline-block; }
 </style>
-""", unsafe_allow_html=True)
+"""
+
+login_css = """
+<style>
+    section[data-testid="stSidebar"] { display: none !important; }
+    .main .block-container { max-width: 400px; padding-top: 15vh; margin: 0 auto; }
+    div[data-testid="stTextInput"] input { border: 1px solid #e2e8f0; padding: 12px; border-radius: 10px; }
+    div.stButton > button { width: 100%; border-radius: 10px; padding: 12px; font-weight: 600; background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; color: white; }
+</style>
+"""
+
+dashboard_css = f"""
+<style>
+    [data-testid="collapsedControl"] {{ display: none !important; }}
+    
+    /* VISTA PC */
+    @media (min-width: 768px) {{
+        section[data-testid="stSidebar"] {{
+            width: {SIDEBAR_DESKTOP_WIDTH} !important; min-width: {SIDEBAR_DESKTOP_WIDTH} !important;
+            transform: none !important; visibility: visible !important;
+            position: fixed !important; top: 0; left: 0; bottom: 0; z-index: 99999;
+            background: #ffffff !important; border-right: 1px solid #e2e8f0; box-shadow: 4px 0 15px rgba(0,0,0,0.02);
+        }}
+        section[data-testid="stSidebar"] > div {{
+            height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center;
+        }}
+        .main .block-container {{ margin-left: {SIDEBAR_DESKTOP_WIDTH}; width: calc(100% - {SIDEBAR_DESKTOP_WIDTH}); padding: 2rem; }}
+        [data-testid="stSidebar"] div[role="radiogroup"] {{ flex-direction: column; gap: 15px; }}
+    }}
+
+    /* VISTA MÓVIL */
+    @media (max-width: 767px) {{
+        /* En móvil usamos la barra nativa colapsable superior */
+        section[data-testid="stSidebar"] {{
+            top: 0 !important; height: 100vh !important;
+        }}
+        /* Restaurar botón hamburguesa */
+        [data-testid="collapsedControl"] {{ display: block !important; top: 10px !important; left: 10px !important; }}
+        .main .block-container {{ margin-left: 0 !important; width: 100% !important; padding: 1rem; }}
+    }}
+
+    /* ESTILOS COMUNES */
+    [data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {{ display: none !important; }}
+    [data-testid="stSidebar"] div[role="radiogroup"] label {{
+        display: flex; justify-content: center; align-items: center;
+        width: 45px; height: 45px; border-radius: 12px; cursor: pointer;
+        background: transparent; color: #64748b; font-size: 24px; border: none; transition: 0.2s;
+    }}
+    [data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"] {{
+        background: #eff6ff; color: #2563eb; box-shadow: 0 2px 8px rgba(37,99,235,0.2);
+    }}
+    
+    .avatar-float {{ width: 35px; height: 35px; background: #f1f5f9; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; color: #334155; }}
+    
+    .kpi-card {{ background: white; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 10px; }}
+    .kpi-val {{ font-size: 1.4rem; font-weight: 800; color: #0f172a; }}
+    .count-ok {{ color: #16a34a; font-weight: bold; background:#dcfce7; padding:2px 6px; border-radius:4px; }}
+    .count-err {{ color: #dc2626; font-weight: bold; background:#fee2e2; padding:2px 6px; border-radius:4px; }}
+</style>
+"""
+
+st.markdown(base_css, unsafe_allow_html=True)
+if st.session_state['logged_in']:
+    st.markdown(dashboard_css, unsafe_allow_html=True)
+else:
+    st.markdown(login_css, unsafe_allow_html=True)
 
 # --- 3. CONEXIÓN ---
 AVATARS = {"avatar_1": "👨‍💼", "avatar_2": "👩‍💼", "avatar_3": "👷‍♂️", "avatar_4": "👩‍💻"} 
@@ -302,32 +337,66 @@ def generar_pdf_pod(data, pod_uuid, from_history=False):
     pdf.rect(10,y+5,80,40); pdf.text(110,y,"RECIBIDO POR:"); pdf.rect(110,y+5,80,40)
     return pdf.output(dest='S').encode('latin-1')
 
-# --- ADMIN FUNCTIONS ---
+# --- FUNCIONES ADMIN (DESPLEGADAS Y SEGURAS) ---
 def admin_crear_usuario(u, r):
-    conn = get_connection(); 
-    if conn:
-        try: conn.cursor().execute("INSERT INTO usuarios (username, password, rol, avatar) VALUES (%s, '123456', %s, 'avatar_1')", (u, r)); conn.commit(); conn.close(); return True
-        except: pass; return False
+    conn = get_connection()
+    if not conn: return False
+    try:
+        cur = conn.cursor()
+        cur.execute("INSERT INTO usuarios (username, password, rol, avatar) VALUES (%s, '123456', %s, 'avatar_1')", (u, r))
+        conn.commit(); conn.close(); return True
+    except: return False
+
 def admin_get_users():
-    conn = get_connection(); return pd.read_sql("SELECT id, username, rol, activo FROM usuarios", conn) if conn else pd.DataFrame()
+    conn = get_connection()
+    if not conn: return pd.DataFrame()
+    df = pd.read_sql("SELECT id, username, rol, activo FROM usuarios", conn)
+    conn.close(); return df
+
 def admin_toggle(uid, curr):
-    conn = get_connection(); conn.cursor().execute("UPDATE usuarios SET activo=%s WHERE id=%s", (0 if curr==1 else 1, uid)); conn.commit(); conn.close()
+    conn = get_connection()
+    if conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE usuarios SET activo=%s WHERE id=%s", (0 if curr==1 else 1, uid))
+        conn.commit(); conn.close()
+
 def admin_update_role(uid, new_role):
-    conn = get_connection(); 
-    if conn: conn.cursor().execute("UPDATE usuarios SET rol=%s WHERE id=%s", (new_role, uid)); conn.commit(); conn.close(); return True; return False
+    conn = get_connection()
+    if conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE usuarios SET rol=%s WHERE id=%s", (new_role, uid))
+        conn.commit(); conn.close(); return True
+    return False
+
 def admin_restablecer_password(rid, uname):
-    conn = get_connection(); 
-    if conn: cur=conn.cursor(); cur.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (uname,)); cur.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (rid,)); conn.commit(); conn.close()
+    conn = get_connection()
+    if conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (uname,))
+        cur.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (rid,))
+        conn.commit(); conn.close()
+
 def solicitar_reset_pass(username):
-    conn = get_connection(); 
+    conn = get_connection()
     if not conn: return "error"
-    try: cur = conn.cursor(); cur.execute("SELECT id FROM usuarios WHERE username=%s", (username,)); 
-    if cur.fetchone(): cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,)); conn.commit(); conn.close(); return "ok"
-    conn.close(); return "no_user"
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM usuarios WHERE username=%s", (username,))
+        if cur.fetchone():
+            cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,))
+            conn.commit(); conn.close(); return "ok"
+        conn.close(); return "no_user"
     except: return "error"
+
 def cambiar_password(uid, np):
-    conn=get_connection();
-    if conn: conn.cursor().execute("UPDATE usuarios SET password=%s WHERE id=%s",(np, uid)); conn.commit(); conn.close(); return True; return False
+    conn = get_connection()
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute("UPDATE usuarios SET password=%s WHERE id=%s", (np, uid))
+            conn.commit(); conn.close(); return True
+        except: pass
+    return False
 
 # --- MODAL GESTIÓN CARGA (CON CÁMARA) ---
 @st.dialog("Gestión de Carga")
@@ -378,14 +447,12 @@ def modal_registro(datos=None):
             st.info(f"Escaneados: {len(st.session_state['scan_buffer_modal'])}")
             if st.button("Borrar Escaneos"): st.session_state['scan_buffer_modal'] = []; st.rerun()
         
-        # Combinar
         val_txt = d_mast
         if st.session_state.get('scan_buffer_modal'):
             val_txt += "\n" + "\n".join(st.session_state['scan_buffer_modal'])
 
         masters_input = st.text_area("Masters (Uno por línea)", value=val_txt, height=150, disabled=disabled)
         
-        # Validar
         lista_final = [m.strip() for m in re.split(r'[\n, ]+', masters_input) if m.strip()]
         conteo_real = len(lista_final); unicos = len(set(lista_final))
         
@@ -438,15 +505,19 @@ else:
     u_info = st.session_state['user_info']; rol = u_info['rol']
     
     with st.sidebar:
+        st.write("") # Espaciador
         av = AVATARS.get(u_info.get('avatar'), '👤')
-        st.markdown(f"<div class='avatar-float' title='{u_info['username']}'>{av}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='text-align:center; font-size:24px;'>{av}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='text-align:center; font-size:12px; color:gray;'>{u_info['username']}</div><hr>", unsafe_allow_html=True)
+        
         opts = ["📅", "📈", "📑", "📝", "⚙️"]
         if rol == 'admin': opts.extend(["👥", "🔑"])
         sel = st.radio("Menu", opts, label_visibility="collapsed")
         mapa = {"📅":"calendar","📈":"analytics","📑":"temu","📝":"pod","⚙️":"settings","👥":"users","🔑":"keys"}
         st.session_state['current_view'] = mapa.get(sel, "calendar")
-        st.markdown("<div class='logout-float'></div>", unsafe_allow_html=True)
-        if st.sidebar.button("🚪"): st.session_state['logged_in'] = False; st.rerun()
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🚪 Salir"): st.session_state['logged_in'] = False; st.rerun()
 
     vista = st.session_state['current_view']
     df = cargar_datos()
@@ -559,4 +630,26 @@ else:
             conn=get_connection(); df_p = pd.read_sql("SELECT * FROM pods ORDER BY fecha DESC LIMIT 20", conn); conn.close()
             st.dataframe(df_p)
 
-    # ... (Resto de vistas Admin igual)
+    elif vista == "settings":
+        st.title("Configuración")
+        with st.container(border=True):
+            st.subheader("Contraseña")
+            p1 = st.text_input("Nueva", type="password"); p2 = st.text_input("Confirmar", type="password")
+            if st.button("Actualizar"):
+                if p1==p2 and p1: 
+                    if cambiar_password(u_info['id'], p1): st.success("OK")
+                else: st.warning("Error")
+
+    elif vista == "users":
+        st.title("Admin Usuarios"); t1,t2=st.tabs(["Crear","Lista"])
+        with t1: 
+            with st.form("nu"): 
+                u=st.text_input("User"); r=st.selectbox("Rol",["user","analista","admin"])
+                if st.form_submit_button("Crear"): admin_crear_usuario(u,r)
+        with t2: st.dataframe(admin_get_users())
+
+    elif vista == "keys":
+        st.title("Claves Pendientes")
+        conn=get_connection(); req=pd.read_sql("SELECT * FROM password_requests WHERE status='pendiente'", conn); conn.close()
+        for _,r in req.iterrows():
+            if st.button(f"Reset {r['username']}", key=r['id']): admin_restablecer_password(r['id'], r['username']); st.rerun()
