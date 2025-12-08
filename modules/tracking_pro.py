@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import time
 from utils import (
     guardar_base_tracking, 
     buscar_trackings_masivo, 
@@ -10,7 +11,7 @@ from utils import (
 )
 
 def show(user_info):
-    # Inicializar tabla si es la primera vez
+    # Aseguramos que la tabla exista
     init_tracking_db()
     
     st.title("🔍 Tracking Pro")
@@ -25,38 +26,33 @@ def show(user_info):
         
         txt_input = st.text_area("Pegar trackings (uno por línea)", height=200, key="compare_input")
         
-        c_btn, c_exp = st.columns([1, 4])
-        
-        if c_btn.button("🔍 Comparar", type="primary"):
+        if st.button("🔍 Comparar", type="primary"):
             if not txt_input.strip():
                 st.warning("La lista está vacía")
             else:
-                # Procesar lista de entrada
                 lista_raw = [x.strip() for x in txt_input.split('\n') if x.strip()]
                 lista_unicos = list(set(lista_raw))
                 
-                with st.spinner(f"Buscando {len(lista_unicos)} guías en la base de datos..."):
-                    # Buscar en BD
+                with st.spinner(f"Buscando {len(lista_unicos)} guías..."):
                     df_found = buscar_trackings_masivo(lista_unicos)
                 
                 # Procesar resultados
                 resultados = []
+                mapa_invoices = {}
                 encontrados_set = set()
                 
-                # Mapear lo encontrado
-                mapa_invoices = {}
                 if not df_found.empty:
+                    df_found['tracking'] = df_found['tracking'].astype(str)
                     mapa_invoices = dict(zip(df_found['tracking'], df_found['invoice']))
                     encontrados_set = set(df_found['tracking'])
                 
-                # Construir tabla final (incluyendo los NO encontrados)
                 for t in lista_unicos:
-                    status = mapa_invoices.get(t, "❌ NO ENCONTRADO")
+                    status = mapa_invoices.get(str(t), "❌ NO ENCONTRADO")
                     resultados.append({"Tracking": t, "Status / Invoice": status})
                 
                 df_res = pd.DataFrame(resultados)
                 
-                # Métricas rápidas
+                # Métricas
                 total = len(lista_unicos)
                 enc = len(encontrados_set)
                 falt = total - enc
@@ -66,7 +62,6 @@ def show(user_info):
                 m2.metric("Encontrados", enc)
                 m3.metric("No Encontrados", falt, delta_color="inverse")
                 
-                # Mostrar tabla y botón de descarga
                 st.dataframe(df_res, use_container_width=True)
                 
                 excel_data = to_excel_bytes(df_res, 'xlsx')
@@ -82,11 +77,10 @@ def show(user_info):
         st.write("Pegar lista de Trackings para este Invoice:")
         txt_create = st.text_area("Trackings (uno por línea)", height=200, key="create_input")
         
-        # Limpieza básica
         lista_clean = []
         if txt_create:
             lista_clean = [x.strip() for x in txt_create.split('\n') if x.strip()]
-            lista_clean = list(set(lista_clean)) # Quitar duplicados
+            lista_clean = list(set(lista_clean))
         
         st.caption(f"Trackings detectados: {len(lista_clean)}")
         
@@ -99,6 +93,8 @@ def show(user_info):
                     if ok:
                         st.success(f"✅ {msg}")
                         st.balloons()
+                        time.sleep(1)
+                        st.rerun() # Recarga para actualizar la lista de gestión
                     else:
                         st.error(f"Error: {msg}")
 
@@ -109,9 +105,17 @@ def show(user_info):
         df_summary = obtener_resumen_bases()
         
         if df_summary.empty:
-            st.info("No hay bases de datos creadas aún.")
+            st.info("No se encontraron bases de datos registradas.")
         else:
-            st.dataframe(df_summary, use_container_width=True)
+            st.dataframe(
+                df_summary, 
+                column_config={
+                    "invoice": "Número de Invoice",
+                    "cantidad": st.column_config.NumberColumn("Cantidad Trackings", format="%d"),
+                    "fecha_creacion": st.column_config.DatetimeColumn("Fecha Creación", format="DD/MM/YYYY HH:mm")
+                },
+                use_container_width=True
+            )
             
             st.divider()
             st.write("🗑️ **Eliminar Invoice**")
@@ -122,6 +126,7 @@ def show(user_info):
             if st.button("Eliminar Base Seleccionada", type="primary"):
                 if eliminar_base_invoice(sel_del):
                     st.success(f"Base {sel_del} eliminada.")
+                    time.sleep(0.5)
                     st.rerun()
                 else:
                     st.error("Error al eliminar.")
