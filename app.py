@@ -54,10 +54,14 @@ if "pod_uuid" in query_params:
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 df_items.to_excel(writer, index=False, sheet_name='Paquetes')
             st.download_button("📥 DESCARGAR EXCEL", output.getvalue(), f"POD_{pod_code_nom}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", type="primary", use_container_width=True)
-        else: st.error("❌ No encontrada.")
-    except Exception as e: st.error(f"Error: {e}")
+        else:
+            st.error("❌ No encontrada.")
+    except Exception as e:
+        st.error(f"Error: {e}")
     st.markdown("---")
-    if st.button("Ir al Inicio"): st.query_params.clear(); st.rerun()
+    if st.button("Ir al Inicio"):
+        st.query_params.clear()
+        st.rerun()
     st.stop()
 
 # --- ESTADO DE SESIÓN ---
@@ -65,16 +69,19 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_info' not in st.session_state: st.session_state['user_info'] = None
 if 'current_view' not in st.session_state: st.session_state['current_view'] = "calendar"
 for key in ['last_pod_pdf', 'last_pod_name', 'last_pod_excel', 'last_pod_excel_name', 'scanned_trackings', 'scan_buffer_modal']:
-    if key not in st.session_state: st.session_state[key] = [] if 'scan' in key else None
+    if key not in st.session_state:
+        st.session_state[key] = [] if 'scan' in key else None
 
-# --- 2. CSS (MÓVIL BOTÓN ABAJO IZQUIERDA + PC FIJA) ---
+# --- 2. CSS ---
 SIDEBAR_WIDTH = "70px"
 
 base_css = """
 <style>
-    /* Ocultar elementos innecesarios */
     [data-testid="stSidebarNav"] { display: none !important; }
-    [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stHeader"], footer { visibility: hidden !important; }
+    [data-testid="stToolbar"] { visibility: hidden !important; }
+    [data-testid="stDecoration"] { display: none !important; }
+    [data-testid="stHeader"] { visibility: hidden !important; }
+    footer { display: none !important; }
     .stApp { background-color: #f8fafc; font-family: 'Segoe UI', sans-serif; }
 </style>
 """
@@ -90,10 +97,9 @@ login_css = """
 
 dashboard_css = f"""
 <style>
-    /* === VISTA PC (Pantalla Grande) === */
+    /* === VISTA PC === */
     @media (min-width: 768px) {{
         [data-testid="collapsedControl"] {{ display: none !important; }}
-        
         section[data-testid="stSidebar"] {{
             display: block !important; width: {SIDEBAR_WIDTH} !important; min-width: {SIDEBAR_WIDTH} !important;
             transform: none !important; visibility: visible !important;
@@ -107,43 +113,20 @@ dashboard_css = f"""
         [data-testid="stSidebar"] div[role="radiogroup"] {{ flex-direction: column; gap: 15px; }}
     }}
 
-    /* === VISTA MÓVIL (Celulares) === */
+    /* === VISTA MÓVIL === */
     @media (max-width: 767px) {{
-        /* BOTÓN HAMBURGUESA FLOTANTE ABAJO A LA IZQUIERDA */
         [data-testid="collapsedControl"] {{
-            display: flex !important;
-            position: fixed !important;
-            top: auto !important;       /* No arriba */
-            bottom: 20px !important;    /* Abajo */
-            left: 20px !important;      /* Izquierda */
-            background-color: #2563eb !important;
-            color: white !important;
-            border-radius: 50% !important; /* Redondo */
-            z-index: 999999 !important;
-            width: 50px !important;
-            height: 50px !important;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 2px 2px 10px rgba(0,0,0,0.3) !important;
+            display: flex !important; position: fixed !important; top: auto !important; bottom: 20px !important; left: 20px !important;
+            background-color: #2563eb !important; color: white !important; border-radius: 50% !important;
+            z-index: 999999 !important; width: 50px !important; height: 50px !important;
+            align-items: center; justify-content: center; box-shadow: 2px 2px 10px rgba(0,0,0,0.3) !important;
         }}
-        
-        /* Barra lateral comportamiento nativo */
         section[data-testid="stSidebar"] {{
-            background-color: white !important;
-            top: 0 !important;
-            height: 100vh !important;
-            z-index: 999990 !important;
+            background-color: white !important; top: 0 !important; height: 100vh !important; z-index: 999990 !important;
         }}
-        
-        section[data-testid="stSidebar"] > div {{
-            padding-top: 50px !important; 
-            display: block !important; 
-        }}
-        
+        section[data-testid="stSidebar"] > div {{ padding-top: 50px !important; display: block !important; }}
         .main .block-container {{ margin-left: 0 !important; width: 100% !important; padding: 1rem; padding-bottom: 80px; }}
-        
-        .avatar-float {{ position: relative !important; margin: 0 auto 20px auto !important; top: 0 !important; }}
-        .logout-float {{ position: relative !important; margin-top: 30px !important; bottom: 0 !important; }}
+        .avatar-float, .logout-float {{ display: none !important; }}
         [data-testid="stSidebar"] div[role="radiogroup"] {{ flex-direction: row; flex-wrap: wrap; justify-content: center; }}
     }}
 
@@ -158,10 +141,8 @@ dashboard_css = f"""
     [data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"] {{
         background: #eff6ff; color: #2563eb; box-shadow: 0 2px 8px rgba(37,99,235,0.2);
     }}
-    
     .avatar-float {{ width: 35px; height: 35px; background: #f1f5f9; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; color: #334155; }}
     .logout-float {{ margin-top: auto; text-align: center; width: 100%; }}
-    
     .kpi-card {{ background: white; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 10px; }}
     .kpi-lbl {{ font-size: 0.75rem; color: #64748b; text-transform: uppercase; font-weight: 700; }}
     .kpi-val {{ font-size: 1.5rem; color: #0f172a; font-weight: 800; }}
@@ -267,7 +248,7 @@ def eliminar_registro(id_reg, admin_pass):
         except: return False
     return False
 
-# --- LOGICA TEMU / EXCEL ---
+# --- LOGICA TEMU ---
 def procesar_archivo_temu(uploaded_file):
     try:
         df_raw = pd.read_excel(uploaded_file, header=None).fillna("")
@@ -290,15 +271,19 @@ def procesar_archivo_temu(uploaded_file):
 
 def to_excel_bytes(df, fmt='xlsx'):
     out = io.BytesIO()
-    if fmt == 'xlsx': with pd.ExcelWriter(out, engine='xlsxwriter') as w: df.to_excel(w, index=False)
-    else: with pd.ExcelWriter(out, engine='xlwt') as w: df.to_excel(w, index=False)
+    if fmt == 'xlsx':
+        with pd.ExcelWriter(out, engine='xlsxwriter') as w:
+            df.to_excel(w, index=False)
+    else:
+        with pd.ExcelWriter(out, engine='xlwt') as w:
+            df.to_excel(w, index=False)
     return out.getvalue()
 
-# --- FUNCIONES POD / PDF ---
+# --- FUNCIONES POD ---
 def generate_pod_code(): return ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
 
 def guardar_pod_digital(cliente, ruta, responsable, paq_dec, bultos, trackings, firma_canvas):
-    conn = get_connection(); 
+    conn = get_connection()
     if not conn: return None, "Error BD"
     try:
         cur = conn.cursor(); uid = str(uuid.uuid4()); code = generate_pod_code(); now = datetime.now()
@@ -360,30 +345,32 @@ def admin_crear_usuario(u, r):
     try: conn.cursor().execute("INSERT INTO usuarios (username, password, rol, avatar) VALUES (%s, '123456', %s, 'avatar_1')", (u, r)); conn.commit(); conn.close(); return True
     except: pass; return False
 def admin_get_users():
-    conn = get_connection(); 
+    conn = get_connection()
     if not conn: return pd.DataFrame()
     df=pd.read_sql("SELECT id, username, rol, activo FROM usuarios", conn); conn.close(); return df
 def admin_toggle(uid, curr):
     conn = get_connection(); conn.cursor().execute("UPDATE usuarios SET activo=%s WHERE id=%s", (0 if curr==1 else 1, uid)); conn.commit(); conn.close()
 def admin_update_role(uid, new_role):
-    conn = get_connection(); 
+    conn = get_connection()
     if conn: conn.cursor().execute("UPDATE usuarios SET rol=%s WHERE id=%s", (new_role, uid)); conn.commit(); conn.close(); return True; return False
 def admin_restablecer_password(rid, uname):
-    conn = get_connection(); 
+    conn = get_connection()
     if conn: cur=conn.cursor(); cur.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (uname,)); cur.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (rid,)); conn.commit(); conn.close()
 def solicitar_reset_pass(username):
-    conn = get_connection(); 
+    conn = get_connection()
     if not conn: return "error"
     try:
-        cur = conn.cursor(); cur.execute("SELECT id FROM usuarios WHERE username=%s", (username,)); 
+        cur = conn.cursor(); cur.execute("SELECT id FROM usuarios WHERE username=%s", (username,))
         if cur.fetchone():
-            cur.execute("SELECT id FROM password_requests WHERE username=%s AND status='pendiente'", (username,)); 
-            if not cur.fetchone(): cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,)); conn.commit(); conn.close(); return "ok"
+            cur.execute("SELECT id FROM password_requests WHERE username=%s AND status='pendiente'", (username,))
+            if not cur.fetchone():
+                cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,))
+                conn.commit(); conn.close(); return "ok"
             conn.close(); return "pendiente"
         conn.close(); return "no_user"
     except: return "error"
 def cambiar_password(uid, np):
-    conn=get_connection();
+    conn = get_connection()
     if conn:
         try: conn.cursor().execute("UPDATE usuarios SET password=%s WHERE id=%s",(np, uid)); conn.commit(); conn.close(); return True
         except: pass
@@ -440,7 +427,6 @@ def modal_registro(datos=None):
         if st.session_state.get('scan_buffer_modal'): val_txt += "\n" + "\n".join(st.session_state['scan_buffer_modal'])
 
         masters_input = st.text_area("Masters (Uno por línea)", value=val_txt, height=150, disabled=disabled)
-        
         lista_final = [m.strip() for m in re.split(r'[\n, ]+', masters_input) if m.strip()]
         conteo_real = len(lista_final); unicos = len(set(lista_final))
         
@@ -471,7 +457,6 @@ def modal_registro(datos=None):
 if not st.session_state['logged_in']:
     st.markdown("<div style='height: 50px'></div>", unsafe_allow_html=True)
     st.markdown("<div class='login-container'><h2 style='color:#1e293b;'>Nexus Logística</h2></div>", unsafe_allow_html=True)
-    
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
         u = st.text_input("Usuario", placeholder="Usuario")
@@ -480,7 +465,6 @@ if not st.session_state['logged_in']:
             user = verificar_login(u, p)
             if user: st.session_state['logged_in'] = True; st.session_state['user_info'] = user; st.rerun()
             else: st.error("Error credenciales")
-        
         st.markdown("<br>", unsafe_allow_html=True)
         with st.expander("Recuperar contraseña"):
             ur = st.text_input("Usuario recuperación")
@@ -494,24 +478,19 @@ else:
     u_info = st.session_state['user_info']; rol = u_info['rol']
     
     with st.sidebar:
-        # En móvil, esto se ve dentro del menú hamburguesa. En PC, fijo a la izquierda.
         av = AVATARS.get(u_info.get('avatar'), '👤')
-        st.markdown(f"<div class='avatar-float' style='position:relative; margin:0 auto; text-align:center;'>{av}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='text-align:center; font-size:12px; color:gray; margin-bottom:20px;'>{u_info['username']}</div>", unsafe_allow_html=True)
-        
+        st.markdown(f"<div class='avatar-float' title='{u_info['username']}'>{av}</div>", unsafe_allow_html=True)
         opts = ["📅", "📈", "📑", "📝", "⚙️"]
         if rol == 'admin': opts.extend(["👥", "🔑"])
         sel = st.radio("Menu", opts, label_visibility="collapsed")
         mapa = {"📅":"calendar","📈":"analytics","📑":"temu","📝":"pod","⚙️":"settings","👥":"users","🔑":"keys"}
         st.session_state['current_view'] = mapa.get(sel, "calendar")
-        
         st.markdown("<div class='logout-float'></div>", unsafe_allow_html=True)
         if st.sidebar.button("🚪"): st.session_state['logged_in'] = False; st.rerun()
 
     vista = st.session_state['current_view']
     df = cargar_datos()
 
-    # --- CALENDARIO ---
     if vista == "calendar":
         c1, c2 = st.columns([6, 1])
         c1.title("Operaciones")
@@ -527,7 +506,6 @@ else:
         cal = calendar(events=evts, options={"initialView": "dayGridMonth", "height": "750px"}, key="cal_main")
         if cal.get("eventClick"): modal_registro(cal["eventClick"]["event"]["extendedProps"])
 
-    # --- ANALYTICS PRO (RECUPERADO) ---
     elif vista == "analytics":
         st.title("Analytics Pro")
         if df.empty: st.warning("Sin datos")
@@ -536,7 +514,6 @@ else:
                 c_s, c_d = st.columns([1,2])
                 s_mast = c_s.text_input("🔍 Buscar Master")
                 rango = c_d.date_input("Rango", [df['fecha'].min(), df['fecha'].max()])
-            
             df_fil = df.copy()
             if s_mast:
                 conn = get_connection()
@@ -569,7 +546,6 @@ else:
                     st.dataframe(df_fil)
                     st.download_button("Descargar CSV", df_fil.to_csv(index=False).encode('utf-8'), "reporte.csv", "text/csv")
 
-    # --- TEMU MANAGER (RECUPERADO) ---
     elif vista == "temu":
         st.title("Gestor TEMU"); f = st.file_uploader("Excel", type=["xlsx","xls"])
         if f:
@@ -589,7 +565,6 @@ else:
                         if search_q: df_disp = df_disp[df_disp.astype(str).apply(lambda x: x.str.contains(search_q, case=False, na=False)).any(axis=1)]
                         st.dataframe(df_disp, hide_index=True)
 
-    # --- POD DIGITAL (RECUPERADO HISTORIAL) ---
     elif vista == "pod":
         st.title("POD Digital")
         t1, t2 = st.tabs(["Nueva", "Historial"])
@@ -599,7 +574,6 @@ else:
                 c3,c4 = st.columns(2); resp = c3.text_input("Responsable"); bult = c4.number_input("Bultos",0)
                 paq_obj = st.number_input("Paquetes Declarados",1)
                 
-                # CÁMARA POD
                 act_cam_pod = st.toggle("Usar Cámara")
                 if act_cam_pod:
                     img_pod = st.camera_input("Scan")
@@ -611,7 +585,6 @@ else:
                                 st.success(f"Leído: {res_pod[0]}")
                             else: st.warning("Repetido")
                 
-                # Mostrar acumulado
                 curr_scan = "\n".join(st.session_state.get('scanned_trackings',[]))
                 track_raw = st.text_area("Trackings", value=curr_scan, height=150)
                 
@@ -623,9 +596,8 @@ else:
             if sub_pod:
                 ts = [t.strip() for t in track_raw.split('\n') if t.strip()]
                 unique_ts = list(set(ts))
-                
                 if len(ts) != len(unique_ts): st.error(f"Duplicados: {len(ts)-len(unique_ts)}")
-                elif len(ts) != paq_obj: st.error(f"No cuadra: Leídos {len(ts)} vs Declarados {paq_obj}")
+                elif len(ts) != paq_obj: st.error(f"No cuadra: Leídos {len(ts)} vs {paq_obj}")
                 elif not rut or not ts: st.error("Datos faltantes")
                 else:
                     d_pod = {"cliente":cli,"ruta":rut,"responsable":resp,"bultos":bult,"trackings":ts,"firma_img":firma if firma.image_data is not None else None}
@@ -657,7 +629,6 @@ else:
                 st.dataframe(df_p)
                 
                 if not df_p.empty:
-                    # SELECTOR MEJORADO: Muestra ID corto y Cliente en lugar de UUID
                     pod_options = {row['uuid']: f"{row['pod_code']} - {row['cliente']} ({row['fecha']})" for i, row in df_p.iterrows()}
                     selected_uuid = st.selectbox("Seleccionar para Reimprimir", list(pod_options.keys()), format_func=lambda x: pod_options[x])
                     
