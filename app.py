@@ -2,14 +2,14 @@ import streamlit as st
 import utils
 from modules import calendario, analytics, gestor_temu, pod_digital, admin, configuracion
 import pandas as pd
-import mysql.connector
 import io
 
 # 1. CONFIGURACIÓN INICIAL
 st.set_page_config(page_title="Nexus Logística", layout="wide", initial_sidebar_state="collapsed")
 
-# 2. CARGAR CSS
-utils.load_css()
+# 2. CARGAR CSS (DINÁMICO)
+if 'user_theme' not in st.session_state: st.session_state['user_theme'] = 'light'
+utils.load_css(st.session_state['user_theme'])
 
 # 3. INTERCEPTOR QR
 qp = st.query_params
@@ -44,7 +44,12 @@ if not st.session_state['logged_in']:
         u = st.text_input("Usuario"); p = st.text_input("Contraseña", type="password")
         if st.button("Ingresar", use_container_width=True, type="primary"):
             usr = utils.verificar_login(u, p)
-            if usr: st.session_state['logged_in']=True; st.session_state['user_info']=usr; st.rerun()
+            if usr: 
+                st.session_state['logged_in']=True
+                st.session_state['user_info']=usr
+                # CARGAR TEMA PREFERIDO
+                st.session_state['user_theme'] = usr.get('tema', 'light')
+                st.rerun()
             else: st.error("Credenciales inválidas")
         
         with st.expander("¿Olvidaste tu contraseña?"):
@@ -70,10 +75,10 @@ rol = u_info['rol']
 with st.sidebar:
     st.markdown(f"<h1 style='text-align:center'>👤</h1>", unsafe_allow_html=True)
     st.markdown(f"<div style='text-align:center'>{u_info['username']}</div><hr>", unsafe_allow_html=True)
+    # BOTÓN SALIR SIDEBAR (Opcional, ya que lo agregamos en Configuración)
     if st.button("🚪 Cerrar Sesión", use_container_width=True):
-        st.session_state['logged_in'] = False; st.rerun()
+        st.session_state.clear(); st.rerun()
 
-# Definir Menú
 MENU = {
     "calendar": {"title": "Calendario", "icon": "📅", "mod": calendario, "roles": ["all"]},
     "analytics": {"title": "Analytics", "icon": "📈", "mod": analytics, "roles": ["all"]},
@@ -83,7 +88,6 @@ MENU = {
     "config": {"title": "Configuración", "icon": "⚙️", "mod": configuracion, "roles": ["all"]},
 }
 
-# --- CONTADOR DE NOTIFICACIONES (CLAVES) ---
 def count_pending():
     conn = utils.get_connection()
     if conn:
@@ -97,8 +101,6 @@ if 'current_view' not in st.session_state: st.session_state['current_view'] = "m
 
 if st.session_state['current_view'] == "menu":
     st.title("Panel Principal")
-    
-    # Notificación
     pending = 0
     if rol == 'admin': pending = count_pending()
     
@@ -108,8 +110,6 @@ if st.session_state['current_view'] == "menu":
     for i, k in enumerate(valid_keys):
         with cols[i % 2]:
             label = f"{MENU[k]['icon']}\n{MENU[k]['title']}"
-            
-            # Agregar badge rojo si es Admin y hay claves pendientes
             if k == "admin" and pending > 0:
                 label = f"🔴 {pending} Pendientes\n{MENU[k]['title']}"
             
@@ -123,5 +123,4 @@ else:
         st.rerun()
     
     k = st.session_state['current_view']
-    # Si entran a admin, le pasamos el contexto de notificaciones si hiciera falta, o solo info normal
     MENU[k]['mod'].show(u_info)
