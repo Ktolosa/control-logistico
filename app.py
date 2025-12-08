@@ -79,7 +79,7 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_info' not in st.session_state: st.session_state['user_info'] = None
 if 'current_view' not in st.session_state: st.session_state['current_view'] = "calendar"
 
-# --- CORRECCIÓN DEL ERROR KEYERROR: INICIALIZAR VARIABLES ---
+# --- CORRECCIÓN VARIABLES ---
 if 'last_pod_pdf' not in st.session_state: st.session_state['last_pod_pdf'] = None
 if 'last_pod_name' not in st.session_state: st.session_state['last_pod_name'] = None
 if 'last_pod_excel' not in st.session_state: st.session_state['last_pod_excel'] = None
@@ -331,12 +331,15 @@ def generar_pdf_pod(data, pod_uuid):
     pdf.text(10, 28, f"ID: {pod_uuid}")
     pdf.text(10, 34, f"Generado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
-    # QR
+    # QR (CORREGIDO: RECTÁNGULO NORMAL PARA EVITAR ERROR)
     qr_data = f"{APP_BASE_URL}/?pod_uuid={pod_uuid}"
     qr = qrcode.make(qr_data)
     qr.save(f"qr_{pod_uuid}.png")
     pdf.set_fill_color(255, 255, 255)
-    pdf.rounded_rect(170, 5, 30, 30, 2, 'F')
+    
+    # CAMBIO AQUÍ: Usar rect() normal en lugar de rounded_rect()
+    pdf.rect(170, 5, 30, 30, 'F') 
+    
     pdf.image(f"qr_{pod_uuid}.png", 172, 7, 26, 26)
     
     # 2. INFORMACIÓN
@@ -472,7 +475,9 @@ def cambiar_password(uid, np):
         try:
             cur = conn.cursor()
             cur.execute("UPDATE usuarios SET password=%s WHERE id=%s", (np, uid))
-            conn.commit(); conn.close(); return True
+            conn.commit()
+            conn.close()
+            return True
         except: pass
     return False
 
