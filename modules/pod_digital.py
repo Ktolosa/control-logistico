@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import uuid, qrcode, random, string, io, cv2
 import numpy as np
-import urllib.parse # Necesario para codificar los mensajes de correo/wa
+import urllib.parse # Importante para los links de correo y whatsapp
 from datetime import datetime, date
 from fpdf import FPDF
 from streamlit_drawable_canvas import st_canvas
@@ -35,7 +35,7 @@ def generar_pdf(data, uid, hist=False):
     pdf.set_fill_color(37,99,235); pdf.rect(0,0,210,40,'F')
     pdf.set_text_color(255); pdf.set_font("Arial",'B',24); pdf.text(10,18,"MANIFIESTO / POD")
     
-    # Datos ID/Fecha
+    # Datos ID/Fecha (Posicionados para no tapar QR)
     pdf.set_font("Arial",'B',10); pdf.text(120, 18, f"ID: {data.get('pod_code','N/A')}")
     pdf.set_font("Arial",'',10); pdf.text(120, 25, f"Fecha: {data.get('fecha_str','N/A')}")
 
@@ -75,7 +75,7 @@ def generar_pdf(data, uid, hist=False):
     pdf.text(110, y, "RECIBIDO POR:"); pdf.rect(110, y+5, 85, 40)
     return pdf.output(dest='S').encode('latin-1')
 
-# --- 3. RECUPERAR ---
+# --- 3. RECUPERAR DATOS ---
 def recuperar_pod(uid):
     conn = get_connection()
     if not conn: return None
@@ -88,7 +88,7 @@ def recuperar_pod(uid):
         return {"uuid": r['uuid'], "pod_code": r.get('pod_code','N/A'), "fecha_str": f_str, "cliente": r['cliente'], "ruta": r['ruta'], "responsable": r['responsable'], "bultos": r['bultos'], "trackings": dfi['tracking'].tolist(), "firma_bytes": r['signature_blob']}
     except: return None
 
-# --- 4. INTERFAZ ---
+# --- 4. INTERFAZ GRÁFICA ---
 def show(user_info):
     st.title("📝 POD Digital")
     if 'scanned_trackings' not in st.session_state: st.session_state['scanned_trackings'] = []
@@ -117,9 +117,9 @@ def show(user_info):
             c3,c4 = st.columns(2); resp = c3.text_input("Responsable"); bult = c4.number_input("Bultos",1)
             paq_dec = st.number_input("Paquetes Declarados", 1)
             
-            # --- CAMPOS DE CONTACTO ---
+            # --- AQUÍ ESTÁN LOS CAMPOS DE CORREO Y WHATSAPP ---
             st.markdown("---")
-            st.caption("📬 Datos de Contacto (Para generar borradores de envío)")
+            st.caption("📬 Datos para envío automático (Opcional)")
             cc1, cc2 = st.columns(2)
             email_to = cc1.text_input("Email Cliente")
             wa_to = cc2.text_input("WhatsApp (Solo números, ej: 50370000000)")
@@ -147,8 +147,8 @@ def show(user_info):
                 if not rut or not unicos_t: st.error("Faltan datos (Ruta o Trackings)")
                 elif len(lista_t) != len(unicos_t): st.error("Elimina duplicados primero")
                 else:
-                    # --- MEJORA: SPINNER ---
-                    with st.spinner("⏳ Guardando en base de datos y generando documentos..."):
+                    # FEEDBACK VISUAL DE CARGA
+                    with st.spinner("⏳ Guardando y generando documentos..."):
                         uid, code, f_str, err = guardar_pod(cli, rut, resp, paq_dec, bult, unicos_t, firm, user_info['username'])
                         
                         if uid:
@@ -159,7 +159,7 @@ def show(user_info):
                             st.session_state['last_pod_excel'] = to_excel_bytes(pd.DataFrame(unicos_t, columns=['Tracking']),'xlsx')
                             st.session_state['last_pod_name'] = f"POD_{code}.pdf"
                             
-                            # Datos para envíos
+                            # Guardamos los datos de contacto para mostrar los botones después del rerun
                             st.session_state['last_pod_uuid'] = uid
                             st.session_state['last_pod_code'] = code
                             st.session_state['last_email'] = email_to
@@ -170,45 +170,44 @@ def show(user_info):
                         else:
                             st.error(f"Error: {err}")
 
-        # --- ZONA DE DESCARGA Y ENVÍO ---
+        # --- ZONA DE BOTONES (SOLO APARECE SI HAY UN POD RECIÉN CREADO) ---
         if st.session_state.get('last_pod_pdf'):
             st.success(f"✅ POD {st.session_state['last_pod_code']} Generado Exitosamente")
             
-            # Generar Link de Descarga Pública
             link_descarga = f"{APP_BASE_URL}/?pod_uuid={st.session_state['last_pod_uuid']}"
             
-            # 1. BOTONES DE DESCARGA LOCAL
+            # Fila 1: Descargas Locales
             c1,c2 = st.columns(2)
             c1.download_button("📥 Descargar PDF", st.session_state['last_pod_pdf'], st.session_state['last_pod_name'], type="primary", use_container_width=True)
             c2.download_button("📊 Descargar Excel", st.session_state['last_pod_excel'], "Lista.xlsx", use_container_width=True)
             
             st.divider()
-            st.write("📤 **Opciones de Envío (Borradores)**")
+            st.subheader("📤 Enviar Documentos")
             
-            # 2. GENERACIÓN DE LINKS DE ENVÍO
+            # Fila 2: Envíos
             ce, cw = st.columns(2)
             
-            # --- Lógica Email ---
+            # --- Botón Correo ---
             email_dest = st.session_state.get('last_email', '')
-            asunto = f"Entrega de Paquetería - POD {st.session_state['last_pod_code']}"
-            cuerpo = f"Estimado Cliente,\n\nSe ha generado el manifiesto de entrega {st.session_state['last_pod_code']}.\n\nPuede descargar el documento digital y el detalle en Excel en el siguiente enlace:\n{link_descarga}\n\nAtentamente,\nNexus Logística"
+            asunto = f"Entrega - POD {st.session_state['last_pod_code']}"
+            cuerpo = f"Estimado Cliente,\n\nManifiesto generado: {st.session_state['last_pod_code']}.\nDescarga aquí: {link_descarga}\n\nNexus Logística"
             
-            # Codificar URL
+            # Codificación URL segura
             safe_asunto = urllib.parse.quote(asunto)
             safe_cuerpo = urllib.parse.quote(cuerpo)
             mailto_link = f"mailto:{email_dest}?subject={safe_asunto}&body={safe_cuerpo}"
             
             ce.link_button("📧 Redactar Correo", mailto_link, use_container_width=True)
-            if not email_dest: ce.caption("Ingresa un correo arriba para pre-llenar destinatario.")
+            if not email_dest: ce.caption("Ingresa correo arriba para activar.")
 
-            # --- Lógica WhatsApp ---
+            # --- Botón WhatsApp ---
             wa_num = st.session_state.get('last_wa', '')
-            wa_msg = f"Hola, aquí tienes el POD {st.session_state['last_pod_code']}. Descárgalo aquí: {link_descarga}"
+            wa_msg = f"Hola, POD {st.session_state['last_pod_code']} disponible: {link_descarga}"
             safe_wa_msg = urllib.parse.quote(wa_msg)
             wa_link = f"https://wa.me/{wa_num}?text={safe_wa_msg}"
             
             cw.link_button("📲 Enviar WhatsApp", wa_link, use_container_width=True)
-            if not wa_num: cw.caption("Ingresa un número arriba para enviar directo.")
+            if not wa_num: cw.caption("Ingresa número arriba para activar.")
 
     with t2:
         st.subheader("Historial y Reimpresión")
@@ -231,8 +230,7 @@ def show(user_info):
                 sel = st.selectbox("Seleccionar para reimprimir:", opciones)
                 
                 if st.button("🔄 Regenerar Documentos"):
-                    # --- MEJORA: SPINNER TAMBIÉN AQUÍ ---
-                    with st.spinner("Recuperando del archivo..."):
+                    with st.spinner("Recuperando..."):
                         uuid_sel = dic_map[sel]
                         d = recuperar_pod(uuid_sel)
                         if d: 
