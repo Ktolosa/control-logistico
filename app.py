@@ -14,6 +14,8 @@ from fpdf import FPDF
 from streamlit_drawable_canvas import st_canvas
 from PIL import Image
 import numpy as np
+import cv2 # OpenCV para procesar imágenes
+from pyzbar.pyzbar import decode # Para leer códigos de barras
 
 # --- 1. CONFIGURACIÓN INICIAL ---
 st.set_page_config(
@@ -27,7 +29,7 @@ st.set_page_config(
 APP_BASE_URL = "https://control-logistico-ifjfvph3s8ybga46f5bdfb.streamlit.app" 
 # ---------------------------------------------------------
 
-# --- LÓGICA DE DESCARGA VÍA QR (INTERCEPTOR) ---
+# --- LÓGICA DE DESCARGA VÍA QR ---
 query_params = st.query_params
 if "pod_uuid" in query_params:
     st.set_page_config(layout="centered", page_title="Descarga POD")
@@ -42,7 +44,6 @@ if "pod_uuid" in query_params:
         )
         q = "SELECT tracking FROM pod_items WHERE pod_uuid = %s"
         df_items = pd.read_sql(q, conn, params=(uuid_target,))
-        
         q_info = "SELECT cliente, fecha, pod_code FROM pods WHERE uuid = %s"
         df_info = pd.read_sql(q_info, conn, params=(uuid_target,))
         conn.close()
@@ -79,7 +80,7 @@ if "pod_uuid" in query_params:
         st.rerun()
     st.stop()
 
-# --- ESTADO NORMAL DE LA APP ---
+# --- ESTADO NORMAL ---
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_info' not in st.session_state: st.session_state['user_info'] = None
 if 'current_view' not in st.session_state: st.session_state['current_view'] = "calendar"
@@ -89,8 +90,10 @@ if 'last_pod_pdf' not in st.session_state: st.session_state['last_pod_pdf'] = No
 if 'last_pod_name' not in st.session_state: st.session_state['last_pod_name'] = None
 if 'last_pod_excel' not in st.session_state: st.session_state['last_pod_excel'] = None
 if 'last_pod_excel_name' not in st.session_state: st.session_state['last_pod_excel_name'] = None
+# Variable para acumular escaneos de la cámara
+if 'scanned_trackings' not in st.session_state: st.session_state['scanned_trackings'] = [] 
 
-# --- 2. CSS ---
+# --- 2. CSS RESPONSIVE (MÓVIL vs ESCRITORIO) ---
 SIDEBAR_WIDTH = "60px"
 
 base_css = """
@@ -113,22 +116,58 @@ login_css = """
 </style>
 """
 
+# CSS AVANZADO: Detecta si es móvil o escritorio
 dashboard_css = f"""
 <style>
     [data-testid="collapsedControl"] {{ display: none !important; }}
-    section[data-testid="stSidebar"] {{
-        display: block !important; width: {SIDEBAR_WIDTH} !important; min-width: {SIDEBAR_WIDTH} !important;
-        max-width: {SIDEBAR_WIDTH} !important; transform: none !important; visibility: visible !important;
-        position: fixed !important; top: 0 !important; left: 0 !important; bottom: 0 !important; z-index: 99999;
-        background-color: #ffffff !important; border-right: 1px solid #f1f5f9; box-shadow: 4px 0 20px rgba(0,0,0,0.03);
+    
+    /* --- ESTILO ESCRITORIO (Pantallas grandes) --- */
+    @media (min-width: 768px) {{
+        section[data-testid="stSidebar"] {{
+            display: block !important; width: {SIDEBAR_WIDTH} !important; min-width: {SIDEBAR_WIDTH} !important;
+            max-width: {SIDEBAR_WIDTH} !important; transform: none !important; visibility: visible !important;
+            position: fixed !important; top: 0 !important; left: 0 !important; bottom: 0 !important; z-index: 99999;
+            background-color: #ffffff !important; border-right: 1px solid #f1f5f9; box-shadow: 4px 0 20px rgba(0,0,0,0.03);
+        }}
+        section[data-testid="stSidebar"] > div {{
+            height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; padding-top: 0px !important; 
+        }}
+        .main .block-container {{
+            margin-left: {SIDEBAR_WIDTH} !important; width: calc(100% - {SIDEBAR_WIDTH}) !important;
+            padding: 2rem !important; max-width: 100% !important;
+        }}
+        /* Iconos verticales en escritorio */
+        [data-testid="stSidebar"] div[role="radiogroup"] {{ flex-direction: column; }}
+        .logout-float {{ position: absolute; bottom: 20px; left: 0; right: 0; margin: auto; text-align: center; }}
+        .avatar-float {{ position: absolute; top: 20px; left: 0; right: 0; margin: auto; }}
     }}
-    section[data-testid="stSidebar"] > div {{
-        height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; padding-top: 0px !important; 
+
+    /* --- ESTILO MÓVIL (Pantallas pequeñas) --- */
+    @media (max-width: 767px) {{
+        section[data-testid="stSidebar"] {{
+            width: 100% !important; height: 70px !important; min-width: 100% !important;
+            top: auto !important; bottom: 0 !important; left: 0 !important; right: 0 !important;
+            flex-direction: row !important; border-top: 1px solid #e2e8f0; border-right: none;
+            box-shadow: 0 -4px 20px rgba(0,0,0,0.05);
+        }}
+        section[data-testid="stSidebar"] > div {{
+            flex-direction: row !important; justify-content: space-around !important; align-items: center !important;
+            width: 100% !important; padding: 0 !important; height: 100% !important;
+        }}
+        /* Reorganizar iconos horizontalmente */
+        [data-testid="stSidebar"] div[role="radiogroup"] {{ 
+            flex-direction: row !important; gap: 10px !important; width: 100%; justify-content: space-around;
+        }}
+        /* Ajustar contenido principal para que no quede tapado por la barra inferior */
+        .main .block-container {{
+            margin-left: 0 !important; width: 100% !important; max-width: 100% !important;
+            padding: 1rem !important; padding-bottom: 90px !important; /* Espacio para la barra */
+        }}
+        /* Ocultar avatar y logout flotantes en movil para simplificar, o reubicarlos */
+        .avatar-float, .logout-float {{ display: none !important; }}
     }}
-    .main .block-container {{
-        margin-left: {SIDEBAR_WIDTH} !important; width: calc(100% - {SIDEBAR_WIDTH}) !important;
-        padding: 2rem !important; max-width: 100% !important;
-    }}
+
+    /* --- ESTILOS COMUNES --- */
     [data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {{ display: none !important; }}
     [data-testid="stSidebar"] div[role="radiogroup"] label {{
         display: flex !important; justify-content: center !important; align-items: center !important;
@@ -139,9 +178,10 @@ dashboard_css = f"""
     [data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"] {{
         background: #eff6ff; color: #2563eb; border: 1px solid #dbeafe; box-shadow: 0 4px 10px rgba(37, 99, 235, 0.15);
     }}
-    .avatar-float {{ position: absolute; top: 20px; left: 0; right: 0; margin: auto; width: 35px; height: 35px; background: #f8fafc; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #e2e8f0; font-size: 18px; color: #334155; }}
-    .logout-float {{ position: absolute; bottom: 20px; left: 0; right: 0; margin: auto; text-align: center; }}
-    .kpi-card {{ background: white; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0; }}
+    
+    .avatar-float {{ width: 35px; height: 35px; background: #f8fafc; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #e2e8f0; font-size: 18px; color: #334155; }}
+    
+    .kpi-card {{ background: white; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom:10px; }}
     .kpi-lbl {{ font-size: 0.75rem; color: #64748b; text-transform: uppercase; font-weight: 700; }}
     .kpi-val {{ font-size: 1.5rem; color: #0f172a; font-weight: 800; }}
     .count-ok {{ color: #16a34a; font-weight: bold; font-size: 0.9rem; }}
@@ -155,7 +195,7 @@ if st.session_state['logged_in']:
 else:
     st.markdown(login_css, unsafe_allow_html=True)
 
-# --- 3. CONEXIÓN Y UTILIDADES ---
+# --- 3. CONEXIÓN ---
 AVATARS = {"avatar_1": "👨‍💼", "avatar_2": "👩‍💼", "avatar_3": "👷‍♂️", "avatar_4": "👩‍💻"} 
 PROVEEDORES = ["Mail Americas", "APG", "IMILE", "GLC"]
 PLATAFORMAS = ["AliExpress", "Shein", "Temu"]
@@ -169,12 +209,11 @@ def get_connection():
         )
     except: return None
 
-# --- MIGRACIÓN AUTOMÁTICA BD (POD CODE) ---
+# --- MIGRACIÓN BD ---
 try:
     conn_mig = get_connection()
     if conn_mig:
         cur = conn_mig.cursor()
-        # Verificar si existe columna pod_code, si no, crearla
         cur.execute("SHOW COLUMNS FROM pods LIKE 'pod_code'")
         if not cur.fetchone():
             cur.execute("ALTER TABLE pods ADD COLUMN pod_code VARCHAR(20) AFTER id")
@@ -182,7 +221,7 @@ try:
         conn_mig.close()
 except: pass
 
-# --- FUNCIONES LÓGICAS ---
+# --- FUNCIONES ---
 def verificar_login(u, p):
     conn = get_connection()
     if not conn: return None
@@ -309,7 +348,6 @@ def to_excel_bytes(df, fmt='xlsx'):
 
 # --- FUNCIONES POD DIGITAL ---
 def generate_pod_code():
-    # Genera código 10 chars ej: A1B2-C3D45
     chars = string.ascii_uppercase + string.digits
     return ''.join(random.choices(chars, k=10))
 
@@ -459,6 +497,17 @@ def generar_pdf_pod(data, pod_uuid, from_history=False):
 
     return pdf.output(dest='S').encode('latin-1')
 
+# --- FUNCIÓN LECTURA QR (CÁMARA) ---
+def decode_image(image_file):
+    try:
+        bytes_data = image_file.getvalue()
+        file_bytes = np.asarray(bytearray(bytes_data), dtype=np.uint8)
+        img = cv2.imdecode(file_bytes, 1)
+        decoded_objects = decode(img)
+        codes = [obj.data.decode('utf-8') for obj in decoded_objects]
+        return codes
+    except Exception: return []
+
 # --- FUNCIONES ADMIN ---
 def admin_crear_usuario(u, r):
     conn = get_connection()
@@ -469,8 +518,7 @@ def admin_crear_usuario(u, r):
             conn.commit()
             conn.close()
             return True
-        except:
-            pass
+        except: pass
     return False
 
 def admin_get_users():
@@ -499,8 +547,7 @@ def admin_update_role(uid, new_role):
             conn.commit()
             conn.close()
             return True
-        except:
-            pass
+        except: pass
     return False
 
 def admin_restablecer_password(rid, uname):
@@ -514,26 +561,19 @@ def admin_restablecer_password(rid, uname):
 
 def solicitar_reset_pass(username):
     conn = get_connection()
-    if not conn:
-        return "error"
+    if not conn: return "error"
     try:
         cur = conn.cursor()
         cur.execute("SELECT id FROM usuarios WHERE username=%s", (username,))
         user_exists = cur.fetchone()
-        
         if user_exists:
             cur.execute("SELECT id FROM password_requests WHERE username=%s AND status='pendiente'", (username,))
             if not cur.fetchone():
                 cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,))
-                conn.commit()
-                conn.close()
-                return "ok"
-            conn.close()
-            return "pendiente"
-        conn.close()
-        return "no_user"
-    except:
-        return "error"
+                conn.commit(); conn.close(); return "ok"
+            conn.close(); return "pendiente"
+        conn.close(); return "no_user"
+    except: return "error"
 
 def cambiar_password(uid, np):
     conn = get_connection()
@@ -541,62 +581,9 @@ def cambiar_password(uid, np):
         try:
             cur = conn.cursor()
             cur.execute("UPDATE usuarios SET password=%s WHERE id=%s", (np, uid))
-            conn.commit()
-            conn.close()
-            return True
-        except:
-            pass
+            conn.commit(); conn.close(); return True
+        except: pass
     return False
-
-# --- 4. MODAL ---
-@st.dialog("Gestión de Carga")
-def modal_registro(datos=None):
-    rol = st.session_state['user_info']['rol']
-    disabled = (rol == 'analista')
-    d_fecha, d_prov, d_plat = date.today(), PROVEEDORES[0], PLATAFORMAS[0]
-    d_serv, d_mast, d_paq, d_com, d_id = SERVICIOS[0], "", 0, "", None
-    d_esp = 1
-    if datos:
-        d_id = datos.get('id')
-        if datos.get('fecha_str'): d_fecha = datetime.strptime(datos['fecha_str'], '%Y-%m-%d').date()
-        if datos.get('proveedor') in PROVEEDORES: d_prov = datos['proveedor']
-        if datos.get('plataforma') in PLATAFORMAS: d_plat = datos['plataforma']
-        d_serv = datos.get('servicio', SERVICIOS[0])
-        d_mast = datos.get('master', "")
-        d_paq = datos.get('paquetes', 0)
-        d_com = datos.get('comentarios', "")
-        d_esp = len([x for x in re.split(r'[\n, ]+', d_mast) if x.strip()]) or 1
-    with st.form("frm"):
-        c1, c2 = st.columns(2)
-        with c1:
-            fin = st.date_input("Fecha Llegada", d_fecha, disabled=disabled)
-            pin = st.selectbox("Proveedor", PROVEEDORES, index=PROVEEDORES.index(d_prov), disabled=disabled)
-            clin = st.selectbox("Cliente", PLATAFORMAS, index=PLATAFORMAS.index(d_plat), disabled=disabled)
-        with c2:
-            sin = st.selectbox("Servicio", SERVICIOS, index=SERVICIOS.index(d_serv) if d_serv in SERVICIOS else 0, disabled=disabled)
-            pain = st.number_input("Total Paquetes", 0, value=int(d_paq), disabled=disabled)
-            esperados = st.number_input("Masters Esperadas", min_value=1, value=d_esp, disabled=disabled)
-        st.markdown("---")
-        st.write("📋 **Masters (Pegar Bloque)**")
-        min_ = st.text_area("Códigos separados por espacio/enter", d_mast, height=100, disabled=disabled)
-        lista_masters = [m for m in re.split(r'[\n, ]+', min_) if m.strip()]
-        conteo_actual = len(lista_masters)
-        col_val1, col_val2 = st.columns(2)
-        col_val1.caption(f"Detectadas: {conteo_actual}")
-        if conteo_actual == esperados: col_val2.markdown(f"<span class='count-ok'>✅ Cuadra</span>", unsafe_allow_html=True)
-        else: col_val2.markdown(f"<span class='count-err'>⚠️ Diferencia: {conteo_actual - esperados}</span>", unsafe_allow_html=True)
-        com = st.text_area("Notas", d_com, disabled=disabled)
-        if not disabled:
-            if st.form_submit_button("💾 Guardar / Actualizar", type="primary", use_container_width=True):
-                guardar_registro(d_id, fin, pin, clin, sin, min_, pain, com)
-                st.rerun()
-    if d_id is not None and not disabled:
-        st.markdown("---")
-        with st.expander("🗑️ Eliminar este Registro"):
-            st.warning("Esta acción es irreversible.")
-            del_pass = st.text_input("Ingresa contraseña de Administrador:", type="password")
-            if st.button("Confirmar Eliminación", type="secondary"):
-                if eliminar_registro(d_id, del_pass): st.rerun()
 
 # ==============================================================================
 #  INTERFAZ PRINCIPAL
@@ -631,7 +618,6 @@ else:
     with st.sidebar:
         av = AVATARS.get(u_info.get('avatar'), '👤')
         st.markdown(f"<div class='avatar-float' title='{u_info['username']}'>{av}</div>", unsafe_allow_html=True)
-        
         opciones = ["📅", "📈", "📑", "📝", "⚙️"] 
         if rol == 'admin': opciones.extend(["👥", "🔑"])
         
@@ -763,30 +749,104 @@ else:
         tab_new, tab_hist = st.tabs(["Nueva POD", "Historial & Búsqueda"])
         
         with tab_new:
+            # DEFINICIÓN DEL FORMULARIO
             with st.form("form_pod"):
                 st.subheader("1. Cliente y Ruta")
                 c1, c2 = st.columns(2)
                 cliente = c1.selectbox("Cliente", ["Mail Americas", "APG", "IMILE"])
                 ruta = c2.text_input("Nombre Ruta / Referencia", placeholder="Ej: Ruta Norte")
+                
                 c3, c4, c5 = st.columns(3)
                 responsable = c3.text_input("Responsable Entrega")
                 paq_dec = c4.number_input("Paquetes Declarados", min_value=1, step=1)
                 bultos = c5.number_input("Bultos (Sacos)", min_value=0, step=1)
+                
                 st.subheader("2. Carga (Escaneo)")
-                trackings_raw = st.text_area("Escanea los códigos aquí (uno por línea)", height=150)
+                
+                # --- NUEVA SECCIÓN DE CÁMARA ---
+                col_scan_btn, col_scan_txt = st.columns([1, 2])
+                
+                # Checkbox para activar cámara
+                use_camera = col_scan_btn.toggle("📷 Usar Cámara")
+                
+                scanned_text_camera = ""
+                if use_camera:
+                    img_file = st.camera_input("Escanea el código de barras")
+                    if img_file is not None:
+                        # Decodificar imagen
+                        codes = decode_image(img_file)
+                        if codes:
+                            scanned_text_camera = "\n".join(codes)
+                            st.success(f"Escaneado: {scanned_text_camera}")
+                            # Agregar a la sesión para que no se pierda al recargar
+                            st.session_state['scanned_trackings'].extend(codes)
+                        else:
+                            st.warning("No se detectó código.")
+
+                # Mostrar acumulado de escaneos
+                if st.session_state['scanned_trackings']:
+                    st.info(f"Códigos en memoria: {len(st.session_state['scanned_trackings'])}")
+                    if st.button("Limpiar Memoria Escaneos"):
+                        st.session_state['scanned_trackings'] = []
+                        st.rerun()
+
+                # Text Area editable (Combina manual + cámara)
+                # Pre-llenamos con lo que hay en memoria
+                initial_value = "\n".join(st.session_state['scanned_trackings'])
+                trackings_raw = st.text_area("Lista de Trackings (Uno por línea)", value=initial_value, height=150, help="Puedes escribir, pegar o usar la cámara.")
+                
+                # Validación en tiempo real
+                lines = [x.strip() for x in trackings_raw.split('\n') if x.strip()]
+                unique_lines = list(set(lines))
+                
+                c_val1, c_val2 = st.columns(2)
+                c_val1.caption(f"Total Leídos: {len(lines)}")
+                
+                if len(lines) != len(unique_lines):
+                    c_val2.markdown(f"<span class='count-err'>⚠️ {len(lines) - len(unique_lines)} Duplicados detectados!</span>", unsafe_allow_html=True)
+                
+                if paq_dec > 0:
+                    if len(lines) == paq_dec:
+                        st.markdown(f"<span class='count-ok'>✅ Conteo Correcto ({len(lines)}/{paq_dec})</span>", unsafe_allow_html=True)
+                    else:
+                        st.markdown(f"<span class='count-err'>❌ No cuadra (Faltan/Sobran: {len(lines) - paq_dec})</span>", unsafe_allow_html=True)
+
                 st.subheader("3. Firma Digital")
-                firma_canvas = st_canvas(fill_color="rgba(255, 165, 0, 0.3)", stroke_width=2, stroke_color="#000000", background_color="#ffffff", height=150, width=600, drawing_mode="freedraw", key="canvas_firma")
+                firma_canvas = st_canvas(
+                    fill_color="rgba(255, 165, 0, 0.3)",
+                    stroke_width=2,
+                    stroke_color="#000000",
+                    background_color="#ffffff",
+                    height=150,
+                    width=600,
+                    drawing_mode="freedraw",
+                    key="canvas_firma"
+                )
+                
                 submitted = st.form_submit_button("💾 GUARDAR Y GENERAR POD", type="primary")
 
+            # LÓGICA FUERA DEL FORMULARIO
             if submitted:
-                trackings_list = [t.strip() for t in trackings_raw.split('\n') if t.strip()]
-                if not responsable or not ruta: st.error("Faltan datos obligatorios.")
-                elif len(trackings_list) == 0: st.error("No hay trackings escaneados.")
+                # Usamos el valor final del text area (que el usuario pudo haber corregido)
+                final_trackings_list = [t.strip() for t in trackings_raw.split('\n') if t.strip()]
+                
+                if not responsable or not ruta:
+                    st.error("Faltan datos obligatorios (Responsable o Ruta).")
+                elif len(final_trackings_list) == 0:
+                    st.error("No hay trackings escaneados.")
                 else:
-                    data_pod = {"cliente": cliente, "ruta": ruta, "responsable": responsable, "bultos": bultos, "trackings": trackings_list, "firma_img": firma_canvas if firma_canvas.image_data is not None else None}
-                    uuid_pod, error = guardar_pod_digital(cliente, ruta, responsable, paq_dec, bultos, trackings_list, firma_canvas)
+                    data_pod = {
+                        "cliente": cliente, "ruta": ruta, "responsable": responsable,
+                        "bultos": bultos, "trackings": final_trackings_list,
+                        "firma_img": firma_canvas if firma_canvas.image_data is not None else None
+                    }
+                    
+                    uuid_pod, error = guardar_pod_digital(cliente, ruta, responsable, paq_dec, bultos, final_trackings_list, firma_canvas)
+                    
                     if uuid_pod:
                         st.success("✅ POD Guardada con éxito.")
+                        # Limpiar memoria de escaneo
+                        st.session_state['scanned_trackings'] = []
                         
                         # Recuperar para asegurar ID generado
                         data_saved = recuperar_datos_pod(uuid_pod)
@@ -795,10 +855,12 @@ else:
                             st.session_state['last_pod_pdf'] = pdf_bytes
                             st.session_state['last_pod_name'] = f"POD_{data_saved['pod_code']}.pdf"
                             
-                            df_excel = pd.DataFrame(trackings_list, columns=["Tracking"])
+                            df_excel = pd.DataFrame(final_trackings_list, columns=["Tracking"])
                             st.session_state['last_pod_excel'] = to_excel_bytes(df_excel, 'xlsx')
                             st.session_state['last_pod_excel_name'] = f"Listado_{data_saved['pod_code']}.xlsx"
-                    else: st.error(f"Error al guardar: {error}")
+                            st.rerun() # Recargar para mostrar botones limpios
+                    else:
+                        st.error(f"Error al guardar: {error}")
 
             if 'last_pod_pdf' in st.session_state and st.session_state['last_pod_pdf'] is not None:
                 c_pdf, c_xls = st.columns(2)
@@ -813,7 +875,6 @@ else:
             conn = get_connection()
             if conn:
                 if search_term:
-                    # Búsqueda compleja: Busca en cabecera o en detalle de items
                     q_search = """
                         SELECT DISTINCT p.uuid, p.pod_code, p.fecha, p.cliente, p.responsable, p.paquetes_reales
                         FROM pods p
@@ -827,18 +888,13 @@ else:
                     wildcard = f"%{search_term}%"
                     df_pods = pd.read_sql(q_search, conn, params=(wildcard, wildcard, wildcard, wildcard))
                 else:
-                    # Vista por defecto (últimos 20)
                     df_pods = pd.read_sql("SELECT uuid, pod_code, fecha, cliente, responsable, paquetes_reales FROM pods ORDER BY fecha DESC LIMIT 20", conn)
                 
                 conn.close()
-                
-                # Mostrar Tabla
                 st.dataframe(df_pods[['pod_code', 'fecha', 'cliente', 'responsable', 'paquetes_reales']], use_container_width=True)
-                
                 st.markdown("---")
                 st.write("🔄 **Regenerar Archivos**")
                 
-                # Selector para regenerar
                 if not df_pods.empty:
                     pod_options = {row['uuid']: f"{row['pod_code']} - {row['cliente']} ({row['fecha']})" for i, row in df_pods.iterrows()}
                     selected_uuid = st.selectbox("Selecciona una POD de la lista", list(pod_options.keys()), format_func=lambda x: pod_options[x])
@@ -847,27 +903,13 @@ else:
                         data_hist = recuperar_datos_pod(selected_uuid)
                         if data_hist:
                             pdf_hist = generar_pdf_pod(data_hist, selected_uuid, from_history=True)
-                            
                             df_excel_hist = pd.DataFrame(data_hist['trackings'], columns=["Tracking"])
                             excel_hist = to_excel_bytes(df_excel_hist, 'xlsx')
-                            
                             c_down1, c_down2 = st.columns(2)
-                            c_down1.download_button(
-                                "📥 PDF", 
-                                pdf_hist, 
-                                f"POD_{data_hist['pod_code']}.pdf", 
-                                "application/pdf"
-                            )
-                            c_down2.download_button(
-                                "📊 Excel", 
-                                excel_hist, 
-                                f"List_{data_hist['pod_code']}.xlsx", 
-                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            )
-                else:
-                    st.info("No se encontraron resultados.")
-            else:
-                st.error("Error de conexión.")
+                            c_down1.download_button("📥 PDF", pdf_hist, f"POD_{data_hist['pod_code']}.pdf", "application/pdf")
+                            c_down2.download_button("📊 Excel", excel_hist, f"List_{data_hist['pod_code']}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                else: st.info("No se encontraron resultados.")
+            else: st.error("Error de conexión.")
 
     elif vista == "user_settings":
         st.title("Configuración")
