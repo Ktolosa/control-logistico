@@ -9,4 +9,7 @@ xlwt
 streamlit-drawable-canvas
 fpdf
 qrcode
-
+opencv-python-headless
+pyzbar
+pillow
+numpy
