@@ -9,7 +9,7 @@ import io
 import uuid
 import qrcode
 from fpdf import FPDF
-from streamlit_drawable_canvas import st_canvas # Requiere instalar
+from streamlit_drawable_canvas import st_canvas
 
 # --- 1. CONFIGURACIÓN INICIAL ---
 st.set_page_config(
@@ -19,7 +19,6 @@ st.set_page_config(
 )
 
 # --- LÓGICA DE DESCARGA VÍA QR (INTERCEPTOR) ---
-# Esto revisa si alguien escaneó un QR y abrió la app con ?pod_uuid=...
 query_params = st.query_params
 if "pod_uuid" in query_params:
     st.set_page_config(layout="centered", page_title="Descarga POD")
@@ -27,21 +26,17 @@ if "pod_uuid" in query_params:
     
     st.markdown("<br><br><h1 style='text-align:center;'>📦 Descarga de POD</h1>", unsafe_allow_html=True)
     
-    # Conexión rápida solo para descargar
     try:
         conn = mysql.connector.connect(
             host=st.secrets["mysql"]["host"], user=st.secrets["mysql"]["user"],
             password=st.secrets["mysql"]["password"], database=st.secrets["mysql"]["database"]
         )
-        # Buscar items
         q = "SELECT tracking FROM pod_items WHERE pod_uuid = %s"
         df_items = pd.read_sql(q, conn, params=(uuid_target,))
         conn.close()
         
         if not df_items.empty:
             st.success(f"✅ POD Encontrada: {len(df_items)} paquetes.")
-            
-            # Generar Excel en memoria
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                 df_items.to_excel(writer, index=False, sheet_name='Paquetes')
@@ -56,11 +51,9 @@ if "pod_uuid" in query_params:
             )
         else:
             st.error("❌ POD no encontrada o expirada.")
-            
     except Exception as e:
         st.error(f"Error de conexión: {e}")
-    
-    st.stop() # Detiene la ejecución normal de la app aquí para solo mostrar la descarga
+    st.stop()
 
 # --- ESTADO NORMAL DE LA APP ---
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
@@ -146,40 +139,18 @@ def get_connection():
         )
     except: return None
 
-# --- CREACIÓN DE TABLAS POD SI NO EXISTEN ---
-# Ejecutamos esto una vez para asegurar la estructura
+# --- CREACIÓN TABLAS POD (SI NO EXISTEN) ---
 try:
     conn_tmp = get_connection()
     if conn_tmp:
         cur = conn_tmp.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS pods (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                uuid VARCHAR(50),
-                fecha DATETIME,
-                cliente VARCHAR(50),
-                ruta VARCHAR(100),
-                responsable VARCHAR(100),
-                paquetes_declarados INT,
-                paquetes_reales INT,
-                bultos INT,
-                signature_blob LONGBLOB,
-                created_by VARCHAR(50)
-            )
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS pod_items (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                pod_uuid VARCHAR(50),
-                tracking VARCHAR(100),
-                INDEX (pod_uuid)
-            )
-        """)
+        cur.execute("""CREATE TABLE IF NOT EXISTS pods (id INT AUTO_INCREMENT PRIMARY KEY, uuid VARCHAR(50), fecha DATETIME, cliente VARCHAR(50), ruta VARCHAR(100), responsable VARCHAR(100), paquetes_declarados INT, paquetes_reales INT, bultos INT, signature_blob LONGBLOB, created_by VARCHAR(50))""")
+        cur.execute("""CREATE TABLE IF NOT EXISTS pod_items (id INT AUTO_INCREMENT PRIMARY KEY, pod_uuid VARCHAR(50), tracking VARCHAR(100), INDEX (pod_uuid))""")
         conn_tmp.commit()
         conn_tmp.close()
 except: pass
 
-# --- FUNCIONES LÓGICAS ---
+# --- FUNCIONES LÓGICAS GENERALES ---
 def verificar_login(u, p):
     conn = get_connection()
     if not conn: return None
@@ -245,7 +216,7 @@ def guardar_registro(id_reg, fecha, prov, plat, serv, mast_str, paq, com):
 
 def eliminar_registro(id_reg, admin_pass):
     if not validar_admin_pass(admin_pass):
-        st.error("🔒 Clave de administrador incorrecta.")
+        st.error("🔒 Clave incorrecta.")
         return False
     conn = get_connection()
     if conn:
@@ -254,8 +225,7 @@ def eliminar_registro(id_reg, admin_pass):
             cur.execute("DELETE FROM masters_detalle WHERE registro_id=%s", (id_reg,)) 
             cur.execute("DELETE FROM registro_logistica WHERE id=%s", (id_reg,))
             conn.commit(); conn.close()
-            st.toast("🗑️ Registro eliminado permanentemente")
-            return True
+            st.toast("🗑️ Eliminado"); return True
         except Exception as e: st.error(str(e)); return False
     return False
 
@@ -284,12 +254,14 @@ def procesar_archivo_temu(uploaded_file):
                 r[1]="YC - Log. for Temu"; r[2]="Zhaoqing"; r[3]="CN"; r[5]="SLV"; r[18]="USD";
                 r[14]="1"; r[15]="0.45"; r[16]="0.01"; r[17]="N/A"; r[20]="N/A";
                 rows_main.append(r)
+            
             rows_costos = []
             for _, row in group.iterrows():
                 c = [""] * 16
                 c[0]=str(row[7]).strip(); c[2]=str(row[10]).strip(); c[3]=str(row[15]).strip(); c[5]=str(row[5]).strip();
                 c[7]="0.00"; c[8]="0.01"; c[9]="0.01"; c[10]="0.00"; c[11]="0.00"; c[12]="0.00"; c[13]="0.00"; c[14]="0.00"; c[15]="0.01";
                 rows_costos.append(c)
+
             paquetes = len(group); cajas = group[5].nunique()
             resultados[master] = {"main": pd.DataFrame(rows_main, columns=headers_main), "costos": pd.DataFrame(rows_costos, columns=headers_costos), "info": {"paquetes": paquetes, "cajas": cajas}}
             resumen_list.append({"Master": master, "Cajas": cajas, "Paquetes": paquetes})
@@ -313,20 +285,11 @@ def guardar_pod_digital(cliente, ruta, responsable, paq_dec, bultos, trackings, 
         cur = conn.cursor()
         pod_uuid = str(uuid.uuid4())
         fecha_now = datetime.now()
-        
-        # Guardar Cabecera
-        sql_pod = """INSERT INTO pods (uuid, fecha, cliente, ruta, responsable, paquetes_declarados, paquetes_reales, bultos, signature_blob, created_by) 
-                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
-        # Convertir imagen base64 (si hay) a string para guardar (idealmente seria BLOB binario, pero TEXT base64 funciona para prototipo)
-        # Ojo: Para producción con mysql-connector, mejor pasar bytes. Streamlit devuelve numpy array o base64 dependiendo del plugin.
-        # Aquí asumiremos que recibimos los datos de imagen como bytes o string
+        sql_pod = "INSERT INTO pods (uuid, fecha, cliente, ruta, responsable, paquetes_declarados, paquetes_reales, bultos, signature_blob, created_by) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
         cur.execute(sql_pod, (pod_uuid, fecha_now, cliente, ruta, responsable, paq_dec, len(trackings), bultos, None, st.session_state['user_info']['username']))
-        
-        # Guardar Items
         if trackings:
             items_data = [(pod_uuid, t) for t in trackings]
             cur.executemany("INSERT INTO pod_items (pod_uuid, tracking) VALUES (%s, %s)", items_data)
-            
         conn.commit(); conn.close()
         return pod_uuid, None
     except Exception as e: return None, str(e)
@@ -334,32 +297,22 @@ def guardar_pod_digital(cliente, ruta, responsable, paq_dec, bultos, trackings, 
 def generar_pdf_pod(data, pod_uuid):
     pdf = FPDF()
     pdf.add_page()
-    
-    # Colores
     blue = (37, 99, 235)
     pdf.set_fill_color(*blue)
     pdf.rect(0, 0, 210, 35, 'F')
-    
-    # Header
     pdf.set_text_color(255, 255, 255)
     pdf.set_font("Arial", 'B', 22)
     pdf.text(15, 20, "MANIFIESTO / POD")
     pdf.set_font("Arial", '', 10)
     pdf.text(15, 28, f"ID: {pod_uuid} | Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     
-    # QR Code Generado que apunta a esta misma app
-    # Obtener URL base (Streamlit Cloud suele ser fijo, local es localhost)
-    # Como no podemos saber la URL exacta dinamicamente fácil, usamos una base conocida o relativa si fuera web.
-    # Usaremos una URL genérica detectada o configurada.
-    base_url = "https://control-logistico.streamlit.app" # <--- CAMBIA ESTO POR TU URL REAL SI LA TIENES
+    # QR apuntando a la app
+    base_url = "https://control-logistico.streamlit.app" 
     qr_data = f"{base_url}/?pod_uuid={pod_uuid}"
-    
     qr = qrcode.make(qr_data)
-    qr_file = f"qr_{pod_uuid}.png"
-    qr.save(qr_file)
-    pdf.image(qr_file, 170, 5, 25, 25)
+    qr.save(f"qr_{pod_uuid}.png")
+    pdf.image(f"qr_{pod_uuid}.png", 170, 5, 25, 25)
     
-    # Cuerpo
     pdf.set_text_color(0, 0, 0)
     pdf.set_y(50)
     pdf.set_font("Arial", 'B', 12)
@@ -378,12 +331,9 @@ def generar_pdf_pod(data, pod_uuid):
     pdf.cell(60, 10, str(data['bultos']), 1, 0, 'C')
     pdf.cell(70, 10, "Completado", 1, 1, 'C')
     
-    # Firma (Si existe imagen)
     if data['firma_img'] is not None:
         pdf.ln(20)
         pdf.text(15, pdf.get_y(), "Firma Digital:")
-        # Guardar temp imagen firma
-        import numpy as np
         from PIL import Image
         img_data = data['firma_img'].image_data
         im = Image.fromarray(img_data.astype('uint8'), mode='RGBA')
@@ -392,33 +342,96 @@ def generar_pdf_pod(data, pod_uuid):
     
     return pdf.output(dest='S').encode('latin-1')
 
-# --- FUNCIONES ADMIN ---
+# --- FUNCIONES ADMIN CORREGIDAS (DESPLEGADAS) ---
 def admin_crear_usuario(u, r):
     conn = get_connection()
     if conn:
-        try: conn.cursor().execute("INSERT INTO usuarios (username, password, rol, avatar) VALUES (%s, '123456', %s, 'avatar_1')", (u, r)); conn.commit(); conn.close(); return True
-        except: pass
+        try:
+            cur = conn.cursor()
+            cur.execute("INSERT INTO usuarios (username, password, rol, avatar) VALUES (%s, '123456', %s, 'avatar_1')", (u, r))
+            conn.commit()
+            conn.close()
+            return True
+        except:
+            pass
     return False
+
 def admin_get_users():
-    conn = get_connection(); return pd.read_sql("SELECT id, username, rol, activo FROM usuarios", conn) if conn else pd.DataFrame()
+    conn = get_connection()
+    if conn:
+        df = pd.read_sql("SELECT id, username, rol, activo FROM usuarios", conn)
+        conn.close()
+        return df
+    return pd.DataFrame()
+
 def admin_toggle(uid, curr):
-    conn = get_connection(); conn.cursor().execute("UPDATE usuarios SET activo=%s WHERE id=%s", (0 if curr==1 else 1, uid)); conn.commit(); conn.close()
+    conn = get_connection()
+    if conn:
+        cur = conn.cursor()
+        new_status = 0 if curr == 1 else 1
+        cur.execute("UPDATE usuarios SET activo=%s WHERE id=%s", (new_status, uid))
+        conn.commit()
+        conn.close()
+
 def admin_update_role(uid, new_role):
-    conn = get_connection(); 
-    if conn: conn.cursor().execute("UPDATE usuarios SET rol=%s WHERE id=%s", (new_role, uid)); conn.commit(); conn.close(); return True; return False
+    conn = get_connection()
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute("UPDATE usuarios SET rol=%s WHERE id=%s", (new_role, uid))
+            conn.commit()
+            conn.close()
+            return True
+        except:
+            pass
+    return False
+
 def admin_restablecer_password(rid, uname):
-    conn = get_connection(); 
-    if conn: cur=conn.cursor(); cur.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (uname,)); cur.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (rid,)); conn.commit(); conn.close()
+    conn = get_connection()
+    if conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (uname,))
+        cur.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (rid,))
+        conn.commit()
+        conn.close()
+
 def solicitar_reset_pass(username):
-    conn = get_connection(); 
-    if not conn: return "error"
-    try: cur = conn.cursor(); cur.execute("SELECT id FROM usuarios WHERE username=%s", (username,)); 
-    if cur.fetchone(): cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,)); conn.commit(); conn.close(); return "ok"
-    conn.close(); return "no_user"
-    except: return "error"
+    conn = get_connection()
+    if not conn:
+        return "error"
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM usuarios WHERE username=%s", (username,))
+        user_exists = cur.fetchone()
+        
+        if user_exists:
+            cur.execute("SELECT id FROM password_requests WHERE username=%s AND status='pendiente'", (username,))
+            is_pending = cur.fetchone()
+            
+            if not is_pending:
+                cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,))
+                conn.commit()
+                conn.close()
+                return "ok"
+            conn.close()
+            return "pendiente"
+        conn.close()
+        return "no_user"
+    except:
+        return "error"
+
 def cambiar_password(uid, np):
-    conn=get_connection();
-    if conn: conn.cursor().execute("UPDATE usuarios SET password=%s WHERE id=%s",(np, uid)); conn.commit(); conn.close(); return True; return False
+    conn = get_connection()
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute("UPDATE usuarios SET password=%s WHERE id=%s", (np, uid))
+            conn.commit()
+            conn.close()
+            return True
+        except:
+            pass
+    return False
 
 # --- 4. MODAL ---
 @st.dialog("Gestión de Carga")
@@ -504,7 +517,6 @@ else:
         av = AVATARS.get(u_info.get('avatar'), '👤')
         st.markdown(f"<div class='avatar-float' title='{u_info['username']}'>{av}</div>", unsafe_allow_html=True)
         
-        # MENU ACTUALIZADO: 📝 = POD Digital
         opciones = ["📅", "📈", "📑", "📝", "⚙️"] 
         if rol == 'admin': opciones.extend(["👥", "🔑"])
         
@@ -514,7 +526,7 @@ else:
             "📅": "calendar", 
             "📈": "analytics_pro", 
             "📑": "temu_manager", 
-            "📝": "pod_digital", # <--- NUEVA HERRAMIENTA
+            "📝": "pod_digital",
             "⚙️": "user_settings", 
             "👥": "admin_users", 
             "🔑": "admin_reqs"
@@ -649,7 +661,6 @@ else:
                 bultos = c5.number_input("Bultos (Sacos)", min_value=0, step=1)
                 
                 st.subheader("2. Carga (Escaneo)")
-                # Usamos text area para compatibilidad con pistola USB/Bluetooth
                 trackings_raw = st.text_area("Escanea los códigos aquí (uno por línea)", height=150)
                 
                 st.subheader("3. Firma Digital")
@@ -672,7 +683,6 @@ else:
                     elif len(trackings_list) == 0:
                         st.error("No hay trackings escaneados.")
                     else:
-                        # Guardar en BD
                         data_pod = {
                             "cliente": cliente, "ruta": ruta, "responsable": responsable,
                             "bultos": bultos, "trackings": trackings_list,
@@ -683,8 +693,6 @@ else:
                         
                         if uuid_pod:
                             st.success("✅ POD Guardada con éxito.")
-                            
-                            # Generar PDF
                             pdf_bytes = generar_pdf_pod(data_pod, uuid_pod)
                             st.download_button(
                                 label="📥 DESCARGAR PDF CON QR",
