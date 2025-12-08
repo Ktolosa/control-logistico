@@ -10,6 +10,8 @@ import uuid
 import qrcode
 from fpdf import FPDF
 from streamlit_drawable_canvas import st_canvas
+from PIL import Image # Necesario para procesar imágenes
+import numpy as np
 
 # --- 1. CONFIGURACIÓN INICIAL ---
 st.set_page_config(
@@ -79,7 +81,7 @@ if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_info' not in st.session_state: st.session_state['user_info'] = None
 if 'current_view' not in st.session_state: st.session_state['current_view'] = "calendar"
 
-# --- CORRECCIÓN VARIABLES ---
+# --- INICIALIZAR VARIABLES ---
 if 'last_pod_pdf' not in st.session_state: st.session_state['last_pod_pdf'] = None
 if 'last_pod_name' not in st.session_state: st.session_state['last_pod_name'] = None
 if 'last_pod_excel' not in st.session_state: st.session_state['last_pod_excel'] = None
@@ -301,15 +303,26 @@ def to_excel_bytes(df, fmt='xlsx'):
     return output.getvalue()
 
 # --- FUNCIONES POD DIGITAL ---
-def guardar_pod_digital(cliente, ruta, responsable, paq_dec, bultos, trackings, firma_img_data):
+def guardar_pod_digital(cliente, ruta, responsable, paq_dec, bultos, trackings, firma_canvas):
     conn = get_connection()
     if not conn: return None, "Error BD"
     try:
         cur = conn.cursor()
         pod_uuid = str(uuid.uuid4())
         fecha_now = datetime.now()
+        
+        # Procesar firma a bytes para guardar
+        blob_firma = None
+        if firma_canvas.image_data is not None:
+            # Convertir numpy array a bytes PNG
+            img_data = firma_canvas.image_data
+            im = Image.fromarray(img_data.astype('uint8'), mode='RGBA')
+            buf = io.BytesIO()
+            im.save(buf, format='PNG')
+            blob_firma = buf.getvalue()
+
         sql_pod = "INSERT INTO pods (uuid, fecha, cliente, ruta, responsable, paquetes_declarados, paquetes_reales, bultos, signature_blob, created_by) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
-        cur.execute(sql_pod, (pod_uuid, fecha_now, cliente, ruta, responsable, paq_dec, len(trackings), bultos, None, st.session_state['user_info']['username']))
+        cur.execute(sql_pod, (pod_uuid, fecha_now, cliente, ruta, responsable, paq_dec, len(trackings), bultos, blob_firma, st.session_state['user_info']['username']))
         if trackings:
             items_data = [(pod_uuid, t) for t in trackings]
             cur.executemany("INSERT INTO pod_items (pod_uuid, tracking) VALUES (%s, %s)", items_data)
@@ -317,11 +330,39 @@ def guardar_pod_digital(cliente, ruta, responsable, paq_dec, bultos, trackings, 
         return pod_uuid, None
     except Exception as e: return None, str(e)
 
-def generar_pdf_pod(data, pod_uuid):
+def recuperar_datos_pod(uuid_target):
+    conn = get_connection()
+    if not conn: return None
+    try:
+        # Cabecera
+        q = "SELECT * FROM pods WHERE uuid = %s"
+        df_h = pd.read_sql(q, conn, params=(uuid_target,))
+        if df_h.empty: return None
+        
+        # Items
+        q_i = "SELECT tracking FROM pod_items WHERE pod_uuid = %s"
+        df_i = pd.read_sql(q_i, conn, params=(uuid_target,))
+        
+        row = df_h.iloc[0]
+        data = {
+            "uuid": row['uuid'],
+            "fecha": row['fecha'],
+            "cliente": row['cliente'],
+            "ruta": row['ruta'],
+            "responsable": row['responsable'],
+            "bultos": row['bultos'],
+            "trackings": df_i['tracking'].tolist(),
+            "firma_bytes": row['signature_blob'] # Bytes directos de BD
+        }
+        conn.close()
+        return data
+    except: return None
+
+def generar_pdf_pod(data, pod_uuid, from_history=False):
     pdf = FPDF()
     pdf.add_page()
     
-    # 1. ENCABEZADO
+    # Header
     pdf.set_fill_color(37, 99, 235)
     pdf.rect(0, 0, 210, 40, 'F')
     pdf.set_text_color(255, 255, 255)
@@ -329,20 +370,22 @@ def generar_pdf_pod(data, pod_uuid):
     pdf.text(10, 18, "MANIFIESTO / POD")
     pdf.set_font("Arial", '', 10)
     pdf.text(10, 28, f"ID: {pod_uuid}")
-    pdf.text(10, 34, f"Generado: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
-    # QR (CORREGIDO: RECTÁNGULO NORMAL PARA EVITAR ERROR)
+    # Manejar fecha (si viene de historial ya es datetime, si es nuevo es string o datetime)
+    fecha_display = data.get('fecha', datetime.now())
+    if isinstance(fecha_display, str): pass # Ya string
+    else: fecha_display = fecha_display.strftime('%Y-%m-%d %H:%M:%S')
+    pdf.text(10, 34, f"Generado: {fecha_display}")
+    
+    # QR
     qr_data = f"{APP_BASE_URL}/?pod_uuid={pod_uuid}"
     qr = qrcode.make(qr_data)
     qr.save(f"qr_{pod_uuid}.png")
     pdf.set_fill_color(255, 255, 255)
-    
-    # CAMBIO AQUÍ: Usar rect() normal en lugar de rounded_rect()
-    pdf.rect(170, 5, 30, 30, 'F') 
-    
+    pdf.rect(170, 5, 30, 30, 'F')
     pdf.image(f"qr_{pod_uuid}.png", 172, 7, 26, 26)
     
-    # 2. INFORMACIÓN
+    # Info
     pdf.set_y(50)
     pdf.set_text_color(0, 0, 0)
     pdf.set_font("Arial", 'B', 11)
@@ -353,50 +396,60 @@ def generar_pdf_pod(data, pod_uuid):
     pdf.cell(35, 8, "RESPONSABLE:", 0, 0)
     pdf.set_font("Arial", '', 11)
     pdf.cell(60, 8, data['responsable'], 0, 1)
+    
     pdf.set_font("Arial", 'B', 11)
-    pdf.cell(30, 8, "RUTA:", 0, 0)
+    pdf.cell(30, 8, "DETALLE:", 0, 0) # CAMBIADO DE RUTA A DETALLE
     pdf.set_font("Arial", '', 11)
     pdf.cell(165, 8, data['ruta'], 0, 1)
     
     pdf.ln(5)
     
-    # 3. TABLA
+    # Tabla Rediseñada (Sin Estado)
     pdf.set_fill_color(240, 240, 240)
     pdf.set_font("Arial", 'B', 10)
-    pdf.cell(65, 10, "PAQUETES REALES", 1, 0, 'C', 1)
-    pdf.cell(65, 10, "BULTOS / SACOS", 1, 0, 'C', 1)
-    pdf.cell(60, 10, "ESTADO", 1, 1, 'C', 1)
+    # Ancho total usable ~190. Dividimos en 2: 95 cada uno.
+    pdf.cell(95, 10, "PAQUETES REALES", 1, 0, 'C', 1)
+    pdf.cell(95, 10, "BULTOS / SACOS", 1, 1, 'C', 1)
     
     pdf.set_font("Arial", '', 14)
-    pdf.cell(65, 15, str(len(data['trackings'])), 1, 0, 'C')
-    pdf.cell(65, 15, str(data['bultos']), 1, 0, 'C')
-    pdf.set_font("Arial", 'B', 12)
-    pdf.set_text_color(22, 163, 74)
-    pdf.cell(60, 15, "ENTREGADO", 1, 1, 'C')
-    pdf.set_text_color(0, 0, 0)
+    pdf.cell(95, 15, str(len(data['trackings'])), 1, 0, 'C')
+    pdf.cell(95, 15, str(data['bultos']), 1, 1, 'C') # 1 al final para salto de linea
     
     pdf.ln(10)
     
-    # 4. FIRMAS
+    # Firmas
     y_firmas = pdf.get_y()
     pdf.set_font("Arial", 'B', 10)
     pdf.text(10, y_firmas, "ENTREGADO POR (FIRMA DIGITAL):")
     
-    if data['firma_img'] is not None:
-        from PIL import Image
-        img_data = data['firma_img'].image_data
-        im = Image.fromarray(img_data.astype('uint8'), mode='RGBA')
-        bg = Image.new("RGB", im.size, (255, 255, 255))
-        bg.paste(im, mask=im.split()[3])
-        bg.save("temp_sig.png")
-        pdf.image("temp_sig.png", 10, y_firmas + 5, 80, 40)
-        pdf.rect(10, y_firmas + 5, 80, 40)
-    else:
-        pdf.rect(10, y_firmas + 5, 80, 40)
-        pdf.text(20, y_firmas + 25, "(Sin Firma Digital)")
+    # Lógica de imagen de firma
+    has_sig = False
+    
+    try:
+        if from_history:
+            # Viene de BD como bytes
+            if data['firma_bytes']:
+                with open("temp_sig_db.png", "wb") as f:
+                    f.write(data['firma_bytes'])
+                pdf.image("temp_sig_db.png", 10, y_firmas + 5, 80, 40)
+                has_sig = True
+        else:
+            # Viene del Canvas en vivo
+            if data['firma_img'] is not None:
+                img_data = data['firma_img'].image_data
+                im = Image.fromarray(img_data.astype('uint8'), mode='RGBA')
+                bg = Image.new("RGB", im.size, (255, 255, 255))
+                bg.paste(im, mask=im.split()[3])
+                bg.save("temp_sig.png")
+                pdf.image("temp_sig.png", 10, y_firmas + 5, 80, 40)
+                has_sig = True
+    except: pass # Si falla la imagen, queda cuadro vacio
+
+    pdf.rect(10, y_firmas + 5, 80, 40) # Borde firma 1
+    if not has_sig: pdf.text(20, y_firmas + 25, "(Sin Firma Digital)")
 
     pdf.text(110, y_firmas, "RECIBIDO POR:")
-    pdf.rect(110, y_firmas + 5, 80, 40)
+    pdf.rect(110, y_firmas + 5, 80, 40) # Borde firma 2
     
     pdf.ln(50)
     pdf.set_font("Arial", 'I', 8)
@@ -459,15 +512,26 @@ def admin_restablecer_password(rid, uname):
 
 def solicitar_reset_pass(username):
     conn = get_connection()
-    if not conn: return "error"
+    if not conn:
+        return "error"
     try:
         cur = conn.cursor()
         cur.execute("SELECT id FROM usuarios WHERE username=%s", (username,))
-        if cur.fetchone():
-            cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,))
-            conn.commit(); conn.close(); return "ok"
-        conn.close(); return "no_user"
-    except: return "error"
+        user_exists = cur.fetchone()
+        
+        if user_exists:
+            cur.execute("SELECT id FROM password_requests WHERE username=%s AND status='pendiente'", (username,))
+            if not cur.fetchone():
+                cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,))
+                conn.commit()
+                conn.close()
+                return "ok"
+            conn.close()
+            return "pendiente"
+        conn.close()
+        return "no_user"
+    except:
+        return "error"
 
 def cambiar_password(uid, np):
     conn = get_connection()
@@ -478,7 +542,8 @@ def cambiar_password(uid, np):
             conn.commit()
             conn.close()
             return True
-        except: pass
+        except:
+            pass
     return False
 
 # --- 4. MODAL ---
@@ -740,7 +805,32 @@ else:
             if conn:
                 df_pods = pd.read_sql("SELECT uuid, fecha, cliente, ruta, responsable, paquetes_reales FROM pods ORDER BY fecha DESC LIMIT 50", conn)
                 conn.close()
-                st.dataframe(df_pods, use_container_width=True)
+                
+                # --- INTERFAZ DE DESCARGA HISTÓRICA ---
+                c_list, c_action = st.columns([2, 1])
+                
+                with c_list:
+                    st.dataframe(df_pods, use_container_width=True)
+                
+                with c_action:
+                    with st.container(border=True):
+                        st.write("🔄 **Regenerar Archivos**")
+                        pod_selected = st.selectbox("Seleccionar POD (UUID)", df_pods['uuid'].tolist(), format_func=lambda x: f"{x[:8]}... (Ver lista)")
+                        
+                        if st.button("Generar Descargas"):
+                            data_hist = recuperar_datos_pod(pod_selected)
+                            if data_hist:
+                                # Regenerar PDF
+                                pdf_hist = generar_pdf_pod(data_hist, pod_selected, from_history=True)
+                                
+                                # Regenerar Excel
+                                df_excel_hist = pd.DataFrame(data_hist['trackings'], columns=["Tracking"])
+                                excel_hist = to_excel_bytes(df_excel_hist, 'xlsx')
+                                
+                                st.download_button("📄 PDF", pdf_hist, f"POD_Hist_{data_hist['cliente']}.pdf", "application/pdf")
+                                st.download_button("📊 Excel", excel_hist, f"List_Hist_{data_hist['cliente']}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                            else:
+                                st.error("No se pudo recuperar la data.")
             else: st.error("Error de conexión.")
 
     elif vista == "user_settings":
