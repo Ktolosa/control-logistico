@@ -35,7 +35,6 @@ if "pod_uuid" in query_params:
     st.set_page_config(layout="centered", page_title="Descarga POD")
     uuid_target = query_params["pod_uuid"]
     st.markdown("<br><h2 style='text-align:center;'>📦 Descarga POD</h2>", unsafe_allow_html=True)
-    
     try:
         conn = mysql.connector.connect(
             host=st.secrets["mysql"]["host"], user=st.secrets["mysql"]["user"],
@@ -68,11 +67,12 @@ if 'current_view' not in st.session_state: st.session_state['current_view'] = "c
 for key in ['last_pod_pdf', 'last_pod_name', 'last_pod_excel', 'last_pod_excel_name', 'scanned_trackings', 'scan_buffer_modal']:
     if key not in st.session_state: st.session_state[key] = [] if 'scan' in key else None
 
-# --- 2. CSS (SOLUCIÓN MÓVIL + BARRA) ---
+# --- 2. CSS (MÓVIL BOTÓN ABAJO IZQUIERDA + PC FIJA) ---
 SIDEBAR_WIDTH = "70px"
 
 base_css = """
 <style>
+    /* Ocultar elementos innecesarios */
     [data-testid="stSidebarNav"] { display: none !important; }
     [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stHeader"], footer { visibility: hidden !important; }
     .stApp { background-color: #f8fafc; font-family: 'Segoe UI', sans-serif; }
@@ -90,50 +90,78 @@ login_css = """
 
 dashboard_css = f"""
 <style>
-    /* --- VISTA ESCRITORIO (PC) --- */
+    /* === VISTA PC (Pantalla Grande) === */
     @media (min-width: 768px) {{
         [data-testid="collapsedControl"] {{ display: none !important; }}
+        
         section[data-testid="stSidebar"] {{
             display: block !important; width: {SIDEBAR_WIDTH} !important; min-width: {SIDEBAR_WIDTH} !important;
             transform: none !important; visibility: visible !important;
             position: fixed !important; top: 0; left: 0; bottom: 0; z-index: 99999;
             background: #ffffff !important; border-right: 1px solid #e2e8f0; box-shadow: 4px 0 15px rgba(0,0,0,0.02);
         }}
-        .main .block-container {{ margin-left: {SIDEBAR_WIDTH}; width: calc(100% - {SIDEBAR_WIDTH}); padding: 2rem; }}
         section[data-testid="stSidebar"] > div {{
             height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; padding-top: 0px !important;
         }}
+        .main .block-container {{ margin-left: {SIDEBAR_WIDTH}; width: calc(100% - {SIDEBAR_WIDTH}); padding: 2rem; }}
+        [data-testid="stSidebar"] div[role="radiogroup"] {{ flex-direction: column; gap: 15px; }}
     }}
 
-    /* --- VISTA MÓVIL (CELULAR) --- */
+    /* === VISTA MÓVIL (Celulares) === */
     @media (max-width: 767px) {{
+        /* BOTÓN HAMBURGUESA FLOTANTE ABAJO A LA IZQUIERDA */
         [data-testid="collapsedControl"] {{
-            display: flex !important; top: 50% !important; left: 0px !important;
-            background-color: #2563eb !important; color: white !important;
-            border-radius: 0 10px 10px 0 !important; z-index: 999999 !important;
-            width: 30px !important; height: 50px !important;
-            align-items: center; justify-content: center;
+            display: flex !important;
+            position: fixed !important;
+            top: auto !important;       /* No arriba */
+            bottom: 20px !important;    /* Abajo */
+            left: 20px !important;      /* Izquierda */
+            background-color: #2563eb !important;
+            color: white !important;
+            border-radius: 50% !important; /* Redondo */
+            z-index: 999999 !important;
+            width: 50px !important;
+            height: 50px !important;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 2px 2px 10px rgba(0,0,0,0.3) !important;
         }}
+        
+        /* Barra lateral comportamiento nativo */
         section[data-testid="stSidebar"] {{
-            background-color: white !important; top: 0 !important; height: 100vh !important; z-index: 999990 !important;
+            background-color: white !important;
+            top: 0 !important;
+            height: 100vh !important;
+            z-index: 999990 !important;
         }}
-        section[data-testid="stSidebar"] > div {{ padding-top: 50px !important; display: block !important; }}
-        .main .block-container {{ margin-left: 0 !important; width: 100% !important; padding: 1rem; }}
-        .avatar-float, .logout-float {{ display: none !important; }}
+        
+        section[data-testid="stSidebar"] > div {{
+            padding-top: 50px !important; 
+            display: block !important; 
+        }}
+        
+        .main .block-container {{ margin-left: 0 !important; width: 100% !important; padding: 1rem; padding-bottom: 80px; }}
+        
+        .avatar-float {{ position: relative !important; margin: 0 auto 20px auto !important; top: 0 !important; }}
+        .logout-float {{ position: relative !important; margin-top: 30px !important; bottom: 0 !important; }}
+        [data-testid="stSidebar"] div[role="radiogroup"] {{ flex-direction: row; flex-wrap: wrap; justify-content: center; }}
     }}
 
-    /* --- ESTILOS COMUNES --- */
+    /* === ESTILOS COMUNES === */
     [data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {{ display: none !important; }}
     [data-testid="stSidebar"] div[role="radiogroup"] label {{
         display: flex; justify-content: center; align-items: center;
         width: 45px; height: 45px; border-radius: 12px; cursor: pointer;
-        background: transparent; color: #64748b; font-size: 24px; border: none; transition: 0.2s; margin: 0 auto 15px auto;
+        background: transparent; color: #64748b; font-size: 24px; border: none; transition: 0.2s; margin: 0 auto;
     }}
+    [data-testid="stSidebar"] div[role="radiogroup"] label:hover {{ background: #f1f5f9; color: #0f172a; transform: scale(1.1); }}
     [data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"] {{
         background: #eff6ff; color: #2563eb; box-shadow: 0 2px 8px rgba(37,99,235,0.2);
     }}
-    .avatar-float {{ position: absolute; top: 20px; left: 0; right: 0; margin: auto; width: 40px; height: 40px; background: #f1f5f9; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; color: #334155; }}
-    .logout-float {{ position: absolute; bottom: 20px; left: 0; right: 0; margin: auto; text-align: center; }}
+    
+    .avatar-float {{ width: 35px; height: 35px; background: #f1f5f9; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; color: #334155; }}
+    .logout-float {{ margin-top: auto; text-align: center; width: 100%; }}
+    
     .kpi-card {{ background: white; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 10px; }}
     .kpi-lbl {{ font-size: 0.75rem; color: #64748b; text-transform: uppercase; font-weight: 700; }}
     .kpi-val {{ font-size: 1.5rem; color: #0f172a; font-weight: 800; }}
@@ -239,7 +267,7 @@ def eliminar_registro(id_reg, admin_pass):
         except: return False
     return False
 
-# --- LOGICA TEMU / EXCEL (CORREGIDO ERROR SINTAXIS) ---
+# --- LOGICA TEMU / EXCEL ---
 def procesar_archivo_temu(uploaded_file):
     try:
         df_raw = pd.read_excel(uploaded_file, header=None).fillna("")
@@ -262,12 +290,8 @@ def procesar_archivo_temu(uploaded_file):
 
 def to_excel_bytes(df, fmt='xlsx'):
     out = io.BytesIO()
-    if fmt == 'xlsx':
-        with pd.ExcelWriter(out, engine='xlsxwriter') as w:
-            df.to_excel(w, index=False, sheet_name='Sheet1')
-    else:
-        with pd.ExcelWriter(out, engine='xlwt') as w:
-            df.to_excel(w, index=False, sheet_name='Sheet1')
+    if fmt == 'xlsx': with pd.ExcelWriter(out, engine='xlsxwriter') as w: df.to_excel(w, index=False)
+    else: with pd.ExcelWriter(out, engine='xlwt') as w: df.to_excel(w, index=False)
     return out.getvalue()
 
 # --- FUNCIONES POD / PDF ---
@@ -302,7 +326,7 @@ def recuperar_datos_pod(uid):
 def generar_pdf_pod(data, pod_uuid, from_history=False):
     pdf = FPDF(); pdf.add_page(); pdf.set_fill_color(37,99,235); pdf.rect(0,0,210,40,'F')
     pdf.set_text_color(255,255,255); pdf.set_font("Arial",'B',24); pdf.text(10,18,"MANIFIESTO / POD")
-    pdf.set_font("Arial",'',10); pdf.text(10,28,f"ID: {data.get('pod_code','N/A')}"); 
+    pdf.set_font("Arial",'',10); pdf.text(10,28,f"ID: {data.get('pod_code','N/A')} (Ref:{pod_uuid[:6]})"); 
     fd = data.get('fecha', datetime.now()); pdf.text(10,34,f"Fecha: {fd if isinstance(fd,str) else fd.strftime('%Y-%m-%d %H:%M')}")
     
     qr = qrcode.make(f"{APP_BASE_URL}/?pod_uuid={pod_uuid}"); qr.save("qr.png")
@@ -329,72 +353,39 @@ def generar_pdf_pod(data, pod_uuid, from_history=False):
     pdf.rect(10,y+5,80,40); pdf.text(110,y,"RECIBIDO POR:"); pdf.rect(110,y+5,80,40)
     return pdf.output(dest='S').encode('latin-1')
 
-# --- FUNCIONES ADMIN (CORREGIDAS) ---
+# --- ADMIN FUNCTIONS ---
 def admin_crear_usuario(u, r):
     conn = get_connection()
-    if conn:
-        try:
-            cur = conn.cursor()
-            cur.execute("INSERT INTO usuarios (username, password, rol, avatar) VALUES (%s, '123456', %s, 'avatar_1')", (u, r))
-            conn.commit(); conn.close(); return True
-        except: pass
-    return False
-
+    if not conn: return False
+    try: conn.cursor().execute("INSERT INTO usuarios (username, password, rol, avatar) VALUES (%s, '123456', %s, 'avatar_1')", (u, r)); conn.commit(); conn.close(); return True
+    except: pass; return False
 def admin_get_users():
     conn = get_connection(); 
-    if conn:
-        df = pd.read_sql("SELECT id, username, rol, activo FROM usuarios", conn)
-        conn.close(); return df
-    return pd.DataFrame()
-
+    if not conn: return pd.DataFrame()
+    df=pd.read_sql("SELECT id, username, rol, activo FROM usuarios", conn); conn.close(); return df
 def admin_toggle(uid, curr):
-    conn = get_connection()
-    if conn:
-        cur = conn.cursor()
-        new_status = 0 if curr == 1 else 1
-        cur.execute("UPDATE usuarios SET activo=%s WHERE id=%s", (new_status, uid))
-        conn.commit(); conn.close()
-
+    conn = get_connection(); conn.cursor().execute("UPDATE usuarios SET activo=%s WHERE id=%s", (0 if curr==1 else 1, uid)); conn.commit(); conn.close()
 def admin_update_role(uid, new_role):
-    conn = get_connection()
-    if conn:
-        try:
-            cur = conn.cursor()
-            cur.execute("UPDATE usuarios SET rol=%s WHERE id=%s", (new_role, uid))
-            conn.commit(); conn.close(); return True
-        except: pass
-    return False
-
+    conn = get_connection(); 
+    if conn: conn.cursor().execute("UPDATE usuarios SET rol=%s WHERE id=%s", (new_role, uid)); conn.commit(); conn.close(); return True; return False
 def admin_restablecer_password(rid, uname):
-    conn = get_connection()
-    if conn:
-        cur = conn.cursor()
-        cur.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (uname,))
-        cur.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (rid,))
-        conn.commit(); conn.close()
-
+    conn = get_connection(); 
+    if conn: cur=conn.cursor(); cur.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (uname,)); cur.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (rid,)); conn.commit(); conn.close()
 def solicitar_reset_pass(username):
-    conn = get_connection()
+    conn = get_connection(); 
     if not conn: return "error"
     try:
-        cur = conn.cursor()
-        cur.execute("SELECT id FROM usuarios WHERE username=%s", (username,))
+        cur = conn.cursor(); cur.execute("SELECT id FROM usuarios WHERE username=%s", (username,)); 
         if cur.fetchone():
-            cur.execute("SELECT id FROM password_requests WHERE username=%s AND status='pendiente'", (username,))
-            if not cur.fetchone():
-                cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,))
-                conn.commit(); conn.close(); return "ok"
+            cur.execute("SELECT id FROM password_requests WHERE username=%s AND status='pendiente'", (username,)); 
+            if not cur.fetchone(): cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,)); conn.commit(); conn.close(); return "ok"
             conn.close(); return "pendiente"
         conn.close(); return "no_user"
     except: return "error"
-
 def cambiar_password(uid, np):
-    conn = get_connection()
+    conn=get_connection();
     if conn:
-        try:
-            cur = conn.cursor()
-            cur.execute("UPDATE usuarios SET password=%s WHERE id=%s", (np, uid))
-            conn.commit(); conn.close(); return True
+        try: conn.cursor().execute("UPDATE usuarios SET password=%s WHERE id=%s",(np, uid)); conn.commit(); conn.close(); return True
         except: pass
     return False
 
@@ -503,7 +494,7 @@ else:
     u_info = st.session_state['user_info']; rol = u_info['rol']
     
     with st.sidebar:
-        st.write("") # Espaciador
+        # En móvil, esto se ve dentro del menú hamburguesa. En PC, fijo a la izquierda.
         av = AVATARS.get(u_info.get('avatar'), '👤')
         st.markdown(f"<div class='avatar-float' style='position:relative; margin:0 auto; text-align:center;'>{av}</div>", unsafe_allow_html=True)
         st.markdown(f"<div style='text-align:center; font-size:12px; color:gray; margin-bottom:20px;'>{u_info['username']}</div>", unsafe_allow_html=True)
@@ -514,8 +505,8 @@ else:
         mapa = {"📅":"calendar","📈":"analytics","📑":"temu","📝":"pod","⚙️":"settings","👥":"users","🔑":"keys"}
         st.session_state['current_view'] = mapa.get(sel, "calendar")
         
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🚪 Salir"): st.session_state['logged_in'] = False; st.rerun()
+        st.markdown("<div class='logout-float'></div>", unsafe_allow_html=True)
+        if st.sidebar.button("🚪"): st.session_state['logged_in'] = False; st.rerun()
 
     vista = st.session_state['current_view']
     df = cargar_datos()
@@ -632,8 +623,9 @@ else:
             if sub_pod:
                 ts = [t.strip() for t in track_raw.split('\n') if t.strip()]
                 unique_ts = list(set(ts))
+                
                 if len(ts) != len(unique_ts): st.error(f"Duplicados: {len(ts)-len(unique_ts)}")
-                elif len(ts) != paq_obj: st.error(f"No cuadra: Leídos {len(ts)} vs {paq_obj}")
+                elif len(ts) != paq_obj: st.error(f"No cuadra: Leídos {len(ts)} vs Declarados {paq_obj}")
                 elif not rut or not ts: st.error("Datos faltantes")
                 else:
                     d_pod = {"cliente":cli,"ruta":rut,"responsable":resp,"bultos":bult,"trackings":ts,"firma_img":firma if firma.image_data is not None else None}
@@ -654,27 +646,30 @@ else:
 
         with t2:
             st.subheader("Buscador Historial")
-            search_pod = st.text_input("🔍 Buscar (Cliente, Tracking, Responsable)")
+            search_pod = st.text_input("🔍 Buscar (ID, Cliente, Tracking)")
             conn = get_connection()
             if conn:
                 q = "SELECT uuid, pod_code, fecha, cliente, responsable FROM pods ORDER BY fecha DESC LIMIT 50"
                 if search_pod:
-                    q = f"SELECT DISTINCT p.uuid, p.pod_code, p.fecha, p.cliente, p.responsable, p.paquetes_reales FROM pods p LEFT JOIN pod_items pi ON p.uuid = pi.pod_uuid WHERE p.pod_code LIKE '%{search_pod}%' OR p.cliente LIKE '%{search_pod}%' OR pi.tracking LIKE '%{search_pod}%' LIMIT 20"
+                    q = f"SELECT DISTINCT p.uuid, p.pod_code, p.fecha, p.cliente, p.responsable FROM pods p LEFT JOIN pod_items pi ON p.uuid = pi.pod_uuid WHERE p.pod_code LIKE '%{search_pod}%' OR p.cliente LIKE '%{search_pod}%' OR pi.tracking LIKE '%{search_pod}%' LIMIT 20"
                 df_p = pd.read_sql(q, conn)
                 conn.close()
                 st.dataframe(df_p)
                 
                 if not df_p.empty:
-                    sel_pod = st.selectbox("Seleccionar para Reimprimir", df_p['uuid'].tolist(), format_func=lambda x: f"POD: {x}")
+                    # SELECTOR MEJORADO: Muestra ID corto y Cliente en lugar de UUID
+                    pod_options = {row['uuid']: f"{row['pod_code']} - {row['cliente']} ({row['fecha']})" for i, row in df_p.iterrows()}
+                    selected_uuid = st.selectbox("Seleccionar para Reimprimir", list(pod_options.keys()), format_func=lambda x: pod_options[x])
+                    
                     if st.button("Regenerar Archivos"):
-                        d_hist = recuperar_datos_pod(sel_pod)
+                        d_hist = recuperar_datos_pod(selected_uuid)
                         if d_hist:
-                            pdf_hist = generar_pdf_pod(d_hist, sel_pod, from_history=True)
+                            pdf_hist = generar_pdf_pod(d_hist, selected_uuid, from_history=True)
                             df_excel_hist = pd.DataFrame(d_hist['trackings'], columns=["Tracking"])
                             excel_hist = to_excel_bytes(df_excel_hist, 'xlsx')
-                            c_down1, c_down2 = st.columns(2)
-                            c_down1.download_button("📥 PDF", pdf_hist, f"POD_{d_hist['pod_code']}.pdf")
-                            c_down2.download_button("📊 Excel", excel_hist, f"List_{d_hist['pod_code']}.xlsx")
+                            c1,c2 = st.columns(2)
+                            c1.download_button("📥 PDF", pdf_hist, f"POD_{d_hist['pod_code']}.pdf")
+                            c2.download_button("📊 Excel", excel_hist, f"List_{d_hist['pod_code']}.xlsx")
             else: st.error("Error de conexión.")
 
     elif vista == "settings":
