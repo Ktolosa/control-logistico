@@ -6,6 +6,10 @@ from streamlit_calendar import calendar
 import plotly.express as px
 import re
 import io
+import uuid
+import qrcode
+from fpdf import FPDF
+from streamlit_drawable_canvas import st_canvas # Requiere instalar
 
 # --- 1. CONFIGURACIÓN INICIAL ---
 st.set_page_config(
@@ -14,7 +18,51 @@ st.set_page_config(
     initial_sidebar_state="expanded" 
 )
 
-# Inicializar estado
+# --- LÓGICA DE DESCARGA VÍA QR (INTERCEPTOR) ---
+# Esto revisa si alguien escaneó un QR y abrió la app con ?pod_uuid=...
+query_params = st.query_params
+if "pod_uuid" in query_params:
+    st.set_page_config(layout="centered", page_title="Descarga POD")
+    uuid_target = query_params["pod_uuid"]
+    
+    st.markdown("<br><br><h1 style='text-align:center;'>📦 Descarga de POD</h1>", unsafe_allow_html=True)
+    
+    # Conexión rápida solo para descargar
+    try:
+        conn = mysql.connector.connect(
+            host=st.secrets["mysql"]["host"], user=st.secrets["mysql"]["user"],
+            password=st.secrets["mysql"]["password"], database=st.secrets["mysql"]["database"]
+        )
+        # Buscar items
+        q = "SELECT tracking FROM pod_items WHERE pod_uuid = %s"
+        df_items = pd.read_sql(q, conn, params=(uuid_target,))
+        conn.close()
+        
+        if not df_items.empty:
+            st.success(f"✅ POD Encontrada: {len(df_items)} paquetes.")
+            
+            # Generar Excel en memoria
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                df_items.to_excel(writer, index=False, sheet_name='Paquetes')
+            
+            st.download_button(
+                label="📥 DESCARGAR LISTADO DE PAQUETES (Excel)",
+                data=output.getvalue(),
+                file_name=f"POD_{uuid_target}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True
+            )
+        else:
+            st.error("❌ POD no encontrada o expirada.")
+            
+    except Exception as e:
+        st.error(f"Error de conexión: {e}")
+    
+    st.stop() # Detiene la ejecución normal de la app aquí para solo mostrar la descarga
+
+# --- ESTADO NORMAL DE LA APP ---
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_info' not in st.session_state: st.session_state['user_info'] = None
 if 'current_view' not in st.session_state: st.session_state['current_view'] = "calendar"
@@ -98,6 +146,39 @@ def get_connection():
         )
     except: return None
 
+# --- CREACIÓN DE TABLAS POD SI NO EXISTEN ---
+# Ejecutamos esto una vez para asegurar la estructura
+try:
+    conn_tmp = get_connection()
+    if conn_tmp:
+        cur = conn_tmp.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS pods (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                uuid VARCHAR(50),
+                fecha DATETIME,
+                cliente VARCHAR(50),
+                ruta VARCHAR(100),
+                responsable VARCHAR(100),
+                paquetes_declarados INT,
+                paquetes_reales INT,
+                bultos INT,
+                signature_blob LONGBLOB,
+                created_by VARCHAR(50)
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS pod_items (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                pod_uuid VARCHAR(50),
+                tracking VARCHAR(100),
+                INDEX (pod_uuid)
+            )
+        """)
+        conn_tmp.commit()
+        conn_tmp.close()
+except: pass
+
 # --- FUNCIONES LÓGICAS ---
 def verificar_login(u, p):
     conn = get_connection()
@@ -178,7 +259,7 @@ def eliminar_registro(id_reg, admin_pass):
         except Exception as e: st.error(str(e)); return False
     return False
 
-# --- LÓGICA GESTOR TEMU ---
+# --- LOGICA TEMU MANAGER ---
 def procesar_archivo_temu(uploaded_file):
     try:
         df_raw = pd.read_excel(uploaded_file, header=None).fillna("")
@@ -203,127 +284,141 @@ def procesar_archivo_temu(uploaded_file):
                 r[1]="YC - Log. for Temu"; r[2]="Zhaoqing"; r[3]="CN"; r[5]="SLV"; r[18]="USD";
                 r[14]="1"; r[15]="0.45"; r[16]="0.01"; r[17]="N/A"; r[20]="N/A";
                 rows_main.append(r)
-            
             rows_costos = []
             for _, row in group.iterrows():
                 c = [""] * 16
                 c[0]=str(row[7]).strip(); c[2]=str(row[10]).strip(); c[3]=str(row[15]).strip(); c[5]=str(row[5]).strip();
                 c[7]="0.00"; c[8]="0.01"; c[9]="0.01"; c[10]="0.00"; c[11]="0.00"; c[12]="0.00"; c[13]="0.00"; c[14]="0.00"; c[15]="0.01";
                 rows_costos.append(c)
-
-            paquetes = len(group)
-            cajas = group[5].nunique()
-
-            resultados[master] = {
-                "main": pd.DataFrame(rows_main, columns=headers_main),
-                "costos": pd.DataFrame(rows_costos, columns=headers_costos),
-                "info": {"paquetes": paquetes, "cajas": cajas}
-            }
+            paquetes = len(group); cajas = group[5].nunique()
+            resultados[master] = {"main": pd.DataFrame(rows_main, columns=headers_main), "costos": pd.DataFrame(rows_costos, columns=headers_costos), "info": {"paquetes": paquetes, "cajas": cajas}}
             resumen_list.append({"Master": master, "Cajas": cajas, "Paquetes": paquetes})
-        
         df_resumen = pd.DataFrame(resumen_list)
         return resultados, df_resumen, None
-
     except Exception as e: return None, None, str(e)
 
 def to_excel_bytes(df, fmt='xlsx'):
     output = io.BytesIO()
     if fmt == 'xlsx':
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df.to_excel(writer, index=False, sheet_name='Sheet1')
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer: df.to_excel(writer, index=False, sheet_name='Sheet1')
     else:
-        with pd.ExcelWriter(output, engine='xlwt') as writer:
-            df.to_excel(writer, index=False, sheet_name='Sheet1')
+        with pd.ExcelWriter(output, engine='xlwt') as writer: df.to_excel(writer, index=False, sheet_name='Sheet1')
     return output.getvalue()
 
+# --- FUNCIONES POD DIGITAL ---
+def guardar_pod_digital(cliente, ruta, responsable, paq_dec, bultos, trackings, firma_img_data):
+    conn = get_connection()
+    if not conn: return None, "Error BD"
+    try:
+        cur = conn.cursor()
+        pod_uuid = str(uuid.uuid4())
+        fecha_now = datetime.now()
+        
+        # Guardar Cabecera
+        sql_pod = """INSERT INTO pods (uuid, fecha, cliente, ruta, responsable, paquetes_declarados, paquetes_reales, bultos, signature_blob, created_by) 
+                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+        # Convertir imagen base64 (si hay) a string para guardar (idealmente seria BLOB binario, pero TEXT base64 funciona para prototipo)
+        # Ojo: Para producción con mysql-connector, mejor pasar bytes. Streamlit devuelve numpy array o base64 dependiendo del plugin.
+        # Aquí asumiremos que recibimos los datos de imagen como bytes o string
+        cur.execute(sql_pod, (pod_uuid, fecha_now, cliente, ruta, responsable, paq_dec, len(trackings), bultos, None, st.session_state['user_info']['username']))
+        
+        # Guardar Items
+        if trackings:
+            items_data = [(pod_uuid, t) for t in trackings]
+            cur.executemany("INSERT INTO pod_items (pod_uuid, tracking) VALUES (%s, %s)", items_data)
+            
+        conn.commit(); conn.close()
+        return pod_uuid, None
+    except Exception as e: return None, str(e)
+
+def generar_pdf_pod(data, pod_uuid):
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Colores
+    blue = (37, 99, 235)
+    pdf.set_fill_color(*blue)
+    pdf.rect(0, 0, 210, 35, 'F')
+    
+    # Header
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Arial", 'B', 22)
+    pdf.text(15, 20, "MANIFIESTO / POD")
+    pdf.set_font("Arial", '', 10)
+    pdf.text(15, 28, f"ID: {pod_uuid} | Fecha: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    
+    # QR Code Generado que apunta a esta misma app
+    # Obtener URL base (Streamlit Cloud suele ser fijo, local es localhost)
+    # Como no podemos saber la URL exacta dinamicamente fácil, usamos una base conocida o relativa si fuera web.
+    # Usaremos una URL genérica detectada o configurada.
+    base_url = "https://control-logistico.streamlit.app" # <--- CAMBIA ESTO POR TU URL REAL SI LA TIENES
+    qr_data = f"{base_url}/?pod_uuid={pod_uuid}"
+    
+    qr = qrcode.make(qr_data)
+    qr_file = f"qr_{pod_uuid}.png"
+    qr.save(qr_file)
+    pdf.image(qr_file, 170, 5, 25, 25)
+    
+    # Cuerpo
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_y(50)
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(95, 10, f"Cliente: {data['cliente']}", 0, 0)
+    pdf.cell(95, 10, f"Responsable: {data['responsable']}", 0, 1)
+    pdf.cell(190, 10, f"Ruta: {data['ruta']}", 0, 1)
+    
+    pdf.ln(5)
+    pdf.set_fill_color(240, 240, 240)
+    pdf.cell(60, 10, "Paquetes Reales", 1, 0, 'C', 1)
+    pdf.cell(60, 10, "Bultos (Sacos)", 1, 0, 'C', 1)
+    pdf.cell(70, 10, "Estado", 1, 1, 'C', 1)
+    
+    pdf.set_font("Arial", '', 12)
+    pdf.cell(60, 10, str(len(data['trackings'])), 1, 0, 'C')
+    pdf.cell(60, 10, str(data['bultos']), 1, 0, 'C')
+    pdf.cell(70, 10, "Completado", 1, 1, 'C')
+    
+    # Firma (Si existe imagen)
+    if data['firma_img'] is not None:
+        pdf.ln(20)
+        pdf.text(15, pdf.get_y(), "Firma Digital:")
+        # Guardar temp imagen firma
+        import numpy as np
+        from PIL import Image
+        img_data = data['firma_img'].image_data
+        im = Image.fromarray(img_data.astype('uint8'), mode='RGBA')
+        im.save("temp_sig.png")
+        pdf.image("temp_sig.png", 15, pdf.get_y()+5, 50, 30)
+    
+    return pdf.output(dest='S').encode('latin-1')
 
 # --- FUNCIONES ADMIN ---
 def admin_crear_usuario(u, r):
     conn = get_connection()
     if conn:
-        try:
-            cur = conn.cursor()
-            cur.execute("INSERT INTO usuarios (username, password, rol, avatar) VALUES (%s, '123456', %s, 'avatar_1')", (u, r))
-            conn.commit()
-            conn.close()
-            return True
-        except:
-            pass
+        try: conn.cursor().execute("INSERT INTO usuarios (username, password, rol, avatar) VALUES (%s, '123456', %s, 'avatar_1')", (u, r)); conn.commit(); conn.close(); return True
+        except: pass
     return False
-
 def admin_get_users():
-    conn = get_connection()
-    if conn:
-        df = pd.read_sql("SELECT id, username, rol, activo FROM usuarios", conn)
-        conn.close()
-        return df
-    return pd.DataFrame()
-
+    conn = get_connection(); return pd.read_sql("SELECT id, username, rol, activo FROM usuarios", conn) if conn else pd.DataFrame()
 def admin_toggle(uid, curr):
-    conn = get_connection()
-    if conn:
-        cur = conn.cursor()
-        new_status = 0 if curr == 1 else 1
-        cur.execute("UPDATE usuarios SET activo=%s WHERE id=%s", (new_status, uid))
-        conn.commit()
-        conn.close()
-
+    conn = get_connection(); conn.cursor().execute("UPDATE usuarios SET activo=%s WHERE id=%s", (0 if curr==1 else 1, uid)); conn.commit(); conn.close()
 def admin_update_role(uid, new_role):
-    conn = get_connection()
-    if conn:
-        try:
-            cur = conn.cursor()
-            cur.execute("UPDATE usuarios SET rol=%s WHERE id=%s", (new_role, uid))
-            conn.commit()
-            conn.close()
-            return True
-        except:
-            pass
-    return False
-
+    conn = get_connection(); 
+    if conn: conn.cursor().execute("UPDATE usuarios SET rol=%s WHERE id=%s", (new_role, uid)); conn.commit(); conn.close(); return True; return False
 def admin_restablecer_password(rid, uname):
-    conn = get_connection()
-    if conn:
-        cur = conn.cursor()
-        cur.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (uname,))
-        cur.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (rid,))
-        conn.commit()
-        conn.close()
-
+    conn = get_connection(); 
+    if conn: cur=conn.cursor(); cur.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (uname,)); cur.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (rid,)); conn.commit(); conn.close()
 def solicitar_reset_pass(username):
-    conn = get_connection()
+    conn = get_connection(); 
     if not conn: return "error"
-    try:
-        cur = conn.cursor()
-        cur.execute("SELECT id FROM usuarios WHERE username=%s", (username,))
-        user_exists = cur.fetchone()
-        
-        if user_exists:
-            cur.execute("SELECT id FROM password_requests WHERE username=%s AND status='pendiente'", (username,))
-            if not cur.fetchone():
-                cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,))
-                conn.commit()
-                conn.close()
-                return "ok"
-            conn.close()
-            return "pendiente"
-        conn.close()
-        return "no_user"
-    except:
-        return "error"
-
+    try: cur = conn.cursor(); cur.execute("SELECT id FROM usuarios WHERE username=%s", (username,)); 
+    if cur.fetchone(): cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,)); conn.commit(); conn.close(); return "ok"
+    conn.close(); return "no_user"
+    except: return "error"
 def cambiar_password(uid, np):
-    conn = get_connection()
-    if conn:
-        try:
-            cur = conn.cursor()
-            cur.execute("UPDATE usuarios SET password=%s WHERE id=%s", (np, uid))
-            conn.commit()
-            conn.close()
-            return True
-        except:
-            pass
-    return False
+    conn=get_connection();
+    if conn: conn.cursor().execute("UPDATE usuarios SET password=%s WHERE id=%s",(np, uid)); conn.commit(); conn.close(); return True; return False
 
 # --- 4. MODAL ---
 @st.dialog("Gestión de Carga")
@@ -409,7 +504,8 @@ else:
         av = AVATARS.get(u_info.get('avatar'), '👤')
         st.markdown(f"<div class='avatar-float' title='{u_info['username']}'>{av}</div>", unsafe_allow_html=True)
         
-        opciones = ["📅", "📈", "📑", "⚙️"] 
+        # MENU ACTUALIZADO: 📝 = POD Digital
+        opciones = ["📅", "📈", "📑", "📝", "⚙️"] 
         if rol == 'admin': opciones.extend(["👥", "🔑"])
         
         seleccion = st.radio("Menu", opciones, label_visibility="collapsed")
@@ -418,6 +514,7 @@ else:
             "📅": "calendar", 
             "📈": "analytics_pro", 
             "📑": "temu_manager", 
+            "📝": "pod_digital", # <--- NUEVA HERRAMIENTA
             "⚙️": "user_settings", 
             "👥": "admin_users", 
             "🔑": "admin_reqs"
@@ -511,62 +608,102 @@ else:
 
     elif vista == "temu_manager":
         st.title("Gestor TEMU | Multi-Formato")
-        st.markdown("Procesamiento inteligente de archivos Excel.")
-        
         with st.container(border=True):
             f_temu = st.file_uploader("Cargar Archivo de DATOS (.xlsx, .xls)", type=["xlsx", "xls"])
             if f_temu:
                 resultados, df_resumen, error = procesar_archivo_temu(f_temu)
-                
-                if error:
-                    st.error(f"Error al procesar: {error}")
+                if error: st.error(f"Error: {error}")
                 elif resultados:
-                    # TABLA RESUMEN PEQUEÑA
-                    st.subheader("📋 Resumen de Carga")
-                    st.dataframe(df_resumen, hide_index=True, use_container_width=False)
-                    
-                    st.divider()
-                    st.subheader("📁 Descargas Disponibles")
-                    
-                    # Selector de Formato
-                    fmt_option = st.radio("Formato de salida:", ["Excel Moderno (.xlsx)", "Excel 97-2003 (.xls)"], horizontal=True)
-                    fmt_ext = "xlsx" if "Moderno" in fmt_option else "xls"
-                    mime_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if fmt_ext == "xlsx" else "application/vnd.ms-excel"
-
+                    st.subheader("📋 Resumen"); st.dataframe(df_resumen, hide_index=True, use_container_width=False)
+                    st.divider(); st.subheader("📁 Descargas")
+                    fmt = st.radio("Formato:", ["Excel Moderno (.xlsx)", "Excel 97-2003 (.xls)"], horizontal=True)
+                    ext = "xlsx" if "Moderno" in fmt else "xls"
+                    mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if ext == "xlsx" else "application/vnd.ms-excel"
                     for master, data in resultados.items():
                         with st.expander(f"📦 Master: {master} ({data['info']['paquetes']} paq)", expanded=False):
+                            search_q = st.text_input(f"🔍 Buscar en {master}", key=f"s_{master}")
+                            c1, c2 = st.columns(2)
+                            c1.download_button(f"📥 Manifiesto", to_excel_bytes(data["main"], ext), f"{master}.{ext}", mime, key=f"bm_{master}")
+                            c2.download_button(f"💲 Costos", to_excel_bytes(data["costos"], ext), f"{master}_Costos.{ext}", mime, key=f"bc_{master}")
+                            df_disp = data["main"]
+                            if search_q: df_disp = df_disp[df_disp.astype(str).apply(lambda x: x.str.contains(search_q, case=False, na=False)).any(axis=1)]
+                            st.dataframe(df_disp, hide_index=True)
+
+    # --- NUEVA VISTA: POD DIGITAL ---
+    elif vista == "pod_digital":
+        st.title("📝 POD Digital")
+        st.markdown("Generación de Manifiestos de Entrega y Firma Digital.")
+        
+        tab_new, tab_hist = st.tabs(["Nueva POD", "Historial"])
+        
+        with tab_new:
+            with st.form("form_pod"):
+                st.subheader("1. Cliente y Ruta")
+                c1, c2 = st.columns(2)
+                cliente = c1.selectbox("Cliente", ["Mail Americas", "APG", "IMILE"])
+                ruta = c2.text_input("Nombre Ruta / Referencia", placeholder="Ej: Ruta Norte")
+                
+                c3, c4, c5 = st.columns(3)
+                responsable = c3.text_input("Responsable Entrega")
+                paq_dec = c4.number_input("Paquetes Declarados", min_value=1, step=1)
+                bultos = c5.number_input("Bultos (Sacos)", min_value=0, step=1)
+                
+                st.subheader("2. Carga (Escaneo)")
+                # Usamos text area para compatibilidad con pistola USB/Bluetooth
+                trackings_raw = st.text_area("Escanea los códigos aquí (uno por línea)", height=150)
+                
+                st.subheader("3. Firma Digital")
+                firma_canvas = st_canvas(
+                    fill_color="rgba(255, 165, 0, 0.3)",
+                    stroke_width=2,
+                    stroke_color="#000000",
+                    background_color="#ffffff",
+                    height=150,
+                    width=600,
+                    drawing_mode="freedraw",
+                    key="canvas_firma"
+                )
+                
+                if st.form_submit_button("💾 GUARDAR Y GENERAR POD", type="primary"):
+                    trackings_list = [t.strip() for t in trackings_raw.split('\n') if t.strip()]
+                    
+                    if not responsable or not ruta:
+                        st.error("Faltan datos obligatorios (Responsable o Ruta).")
+                    elif len(trackings_list) == 0:
+                        st.error("No hay trackings escaneados.")
+                    else:
+                        # Guardar en BD
+                        data_pod = {
+                            "cliente": cliente, "ruta": ruta, "responsable": responsable,
+                            "bultos": bultos, "trackings": trackings_list,
+                            "firma_img": firma_canvas if firma_canvas.image_data is not None else None
+                        }
+                        
+                        uuid_pod, error = guardar_pod_digital(cliente, ruta, responsable, paq_dec, bultos, trackings_list, firma_canvas)
+                        
+                        if uuid_pod:
+                            st.success("✅ POD Guardada con éxito.")
                             
-                            # BARRA DE BÚSQUEDA INTERACTIVA
-                            search_q = st.text_input(f"🔍 Buscar en Master {master}", key=f"s_{master}", placeholder="Escribe para filtrar...")
-                            
-                            c_main, c_cost = st.columns(2)
-                            
-                            c_main.download_button(
-                                label=f"📥 Manifiesto .{fmt_ext}",
-                                data=to_excel_bytes(data["main"], fmt_ext),
-                                file_name=f"{master}.{fmt_ext}",
-                                mime=mime_type,
-                                key=f"btn_main_{master}"
+                            # Generar PDF
+                            pdf_bytes = generar_pdf_pod(data_pod, uuid_pod)
+                            st.download_button(
+                                label="📥 DESCARGAR PDF CON QR",
+                                data=pdf_bytes,
+                                file_name=f"POD_{cliente}_{date.today()}.pdf",
+                                mime="application/pdf"
                             )
-                            
-                            c_cost.download_button(
-                                label=f"💲 Costos .{fmt_ext}",
-                                data=to_excel_bytes(data["costos"], fmt_ext),
-                                file_name=f"{master}_Costos.{fmt_ext}",
-                                mime=mime_type,
-                                key=f"btn_cost_{master}"
-                            )
-                            
-                            st.write("---")
-                            st.caption("Vista Previa del Manifiesto:")
-                            
-                            # FILTRO DINÁMICO
-                            df_display = data["main"]
-                            if search_q:
-                                mask = df_display.astype(str).apply(lambda x: x.str.contains(search_q, case=False, na=False)).any(axis=1)
-                                df_display = df_display[mask]
-                                
-                            st.dataframe(df_display, hide_index=True)
+                        else:
+                            st.error(f"Error al guardar: {error}")
+
+        with tab_hist:
+            st.subheader("Historial de PODs Generadas")
+            conn = get_connection()
+            if conn:
+                df_pods = pd.read_sql("SELECT uuid, fecha, cliente, ruta, responsable, paquetes_reales FROM pods ORDER BY fecha DESC LIMIT 50", conn)
+                conn.close()
+                st.dataframe(df_pods, use_container_width=True)
+            else:
+                st.error("Error de conexión.")
 
     elif vista == "user_settings":
         st.title("Configuración")
