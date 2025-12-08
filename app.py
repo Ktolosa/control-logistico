@@ -21,20 +21,18 @@ from pyzbar.pyzbar import decode
 st.set_page_config(
     page_title="Nexus Logística", 
     layout="wide", 
-    initial_sidebar_state="expanded" 
+    initial_sidebar_state="expanded"
 )
 
 # ---------------------------------------------------------
-# ⚠️ URL BASE (Para el QR)
+# ⚠️ URL BASE
 APP_BASE_URL = "https://control-logistico-ifjfvph3s8ybga46f5bdfb.streamlit.app" 
 # ---------------------------------------------------------
 
 # --- INTERCEPTOR DE DESCARGA (QR) ---
 query_params = st.query_params
 if "pod_uuid" in query_params:
-    st.set_page_config(layout="centered", page_title="Descarga POD")
     uuid_target = query_params["pod_uuid"]
-    
     st.markdown("<br><h2 style='text-align:center;'>📦 Descarga POD</h2>", unsafe_allow_html=True)
     
     try:
@@ -74,108 +72,52 @@ if "pod_uuid" in query_params:
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_info' not in st.session_state: st.session_state['user_info'] = None
 if 'current_view' not in st.session_state: st.session_state['current_view'] = "calendar"
-# Variables para persistencia de cámara/archivos
-for key in ['last_pod_pdf', 'last_pod_name', 'last_pod_excel', 'last_pod_excel_name']:
-    if key not in st.session_state: st.session_state[key] = None
-# Buffer de escaneo para el modal de carga
-if 'scan_buffer_modal' not in st.session_state: st.session_state['scan_buffer_modal'] = []
+# Variables persistentes
+for key in ['last_pod_pdf', 'last_pod_name', 'last_pod_excel', 'last_pod_excel_name', 'scanned_trackings']:
+    if key not in st.session_state:
+        st.session_state[key] = [] if key == 'scanned_trackings' else None
 
-# --- 2. CSS RESPONSIVE (MÓVIL vs PC) ---
-SIDEBAR_DESKTOP_WIDTH = "70px"
-
-base_css = """
+# --- 2. CSS ESTABLE (LIMPIO Y FUNCIONAL) ---
+st.markdown("""
 <style>
-    [data-testid="stSidebarNav"] { display: none !important; }
-    [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stHeader"], footer { display: none !important; }
+    /* Ocultar elementos innecesarios */
+    [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stHeader"], footer { visibility: hidden !important; }
+    
+    /* Estilo General */
     .stApp { background-color: #f8fafc; font-family: 'Segoe UI', sans-serif; }
-</style>
-"""
-
-login_css = """
-<style>
-    section[data-testid="stSidebar"] { display: none !important; }
-    .main .block-container { max-width: 400px; padding-top: 15vh; margin: 0 auto; }
-    div[data-testid="stTextInput"] input { border: 1px solid #e2e8f0; padding: 12px; border-radius: 10px; }
-    div.stButton > button { width: 100%; border-radius: 10px; padding: 12px; font-weight: 600; background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; color: white; }
-</style>
-"""
-
-dashboard_css = f"""
-<style>
-    [data-testid="collapsedControl"] {{ display: none !important; }}
     
-    /* --- VISTA DE ESCRITORIO (PC) --- */
-    @media (min-width: 768px) {{
-        section[data-testid="stSidebar"] {{
-            width: {SIDEBAR_DESKTOP_WIDTH} !important; min-width: {SIDEBAR_DESKTOP_WIDTH} !important;
-            transform: none !important; visibility: visible !important;
-            position: fixed !important; top: 0; left: 0; bottom: 0; z-index: 99999;
-            background: #ffffff !important; border-right: 1px solid #e2e8f0; box-shadow: 4px 0 15px rgba(0,0,0,0.02);
-        }}
-        section[data-testid="stSidebar"] > div {{
-            height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center;
-        }}
-        .main .block-container {{ margin-left: {SIDEBAR_DESKTOP_WIDTH}; width: calc(100% - {SIDEBAR_DESKTOP_WIDTH}); padding: 2rem; }}
-        
-        [data-testid="stSidebar"] div[role="radiogroup"] {{ flex-direction: column; gap: 15px; }}
-        .nav-label {{ display: none; }} /* Ocultar texto en PC */
-    }}
-
-    /* --- VISTA MÓVIL (CELULAR) --- */
-    @media (max-width: 767px) {{
-        section[data-testid="stSidebar"] {{
-            width: 100% !important; height: 65px !important; min-width: 100% !important;
-            top: auto !important; bottom: 0 !important; left: 0 !important; right: 0 !important;
-            display: flex !important; flex-direction: row !important;
-            background: #ffffff !important; border-top: 1px solid #e2e8f0; z-index: 999999 !important;
-            transform: none !important; transition: none !important;
-            box-shadow: 0 -4px 10px rgba(0,0,0,0.05);
-        }}
-        section[data-testid="stSidebar"] > div {{
-            flex-direction: row !important; justify-content: space-evenly !important; align-items: center !important;
-            width: 100% !important; padding: 0 !important; height: 100% !important;
-        }}
-        
-        /* Contenido principal con margen inferior para no tapar el menú */
-        .main .block-container {{
-            margin-left: 0 !important; width: 100% !important; max-width: 100% !important;
-            padding: 1rem !important; padding-bottom: 100px !important; 
-        }}
-        
-        /* Ajuste de iconos para móvil */
-        [data-testid="stSidebar"] div[role="radiogroup"] {{ 
-            flex-direction: row !important; width: 100%; justify-content: space-around; 
-        }}
-        
-        .avatar-float, .logout-float {{ display: none !important; }}
-    }}
-
-    /* --- ESTILOS COMUNES --- */
-    [data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {{ display: none !important; }}
-    [data-testid="stSidebar"] div[role="radiogroup"] label {{
-        display: flex; justify-content: center; align-items: center;
-        width: 45px; height: 45px; border-radius: 12px; cursor: pointer;
-        background: transparent; color: #64748b; font-size: 24px; border: none; transition: 0.2s;
-    }}
-    [data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"] {{
-        background: #eff6ff; color: #2563eb; box-shadow: 0 2px 8px rgba(37,99,235,0.2);
-    }}
+    /* Login Centrado */
+    .login-container {
+        max-width: 400px; margin: 0 auto; padding-top: 50px; text-align: center;
+    }
     
-    .avatar-float {{ position: absolute; top: 20px; width: 40px; height: 40px; background: #f1f5f9; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; }}
-    .logout-float {{ position: absolute; bottom: 20px; }}
+    /* Barra Lateral Estilizada (Nativa) */
+    [data-testid="stSidebar"] {
+        background-color: #ffffff;
+        border-right: 1px solid #e2e8f0;
+    }
     
-    .kpi-card {{ background: white; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 10px; }}
-    .kpi-val {{ font-size: 1.4rem; font-weight: 800; color: #0f172a; }}
-    .count-ok {{ color: #16a34a; font-weight: bold; background:#dcfce7; padding:2px 6px; border-radius:4px; }}
-    .count-err {{ color: #dc2626; font-weight: bold; background:#fee2e2; padding:2px 6px; border-radius:4px; }}
+    /* Botones del Menú (Radio) */
+    .stRadio > div { gap: 10px; }
+    .stRadio label {
+        background: transparent; padding: 10px; border-radius: 8px; cursor: pointer; transition: 0.2s;
+        border: 1px solid transparent; width: 100%; display: flex; align-items: center;
+    }
+    .stRadio label:hover { background: #f1f5f9; }
+    
+    /* KPIs */
+    .kpi-card {
+        background: white; padding: 15px; border-radius: 12px;
+        border: 1px solid #e2e8f0; margin-bottom: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+    }
+    .kpi-lbl { font-size: 0.8rem; color: #64748b; font-weight: 700; text-transform: uppercase; }
+    .kpi-val { font-size: 1.6rem; font-weight: 800; color: #0f172a; }
+    
+    /* Alertas Validación */
+    .count-ok { color: #16a34a; font-weight: bold; background:#dcfce7; padding:4px 8px; border-radius:6px; display:inline-block; }
+    .count-err { color: #dc2626; font-weight: bold; background:#fee2e2; padding:4px 8px; border-radius:6px; display:inline-block; }
 </style>
-"""
-
-st.markdown(base_css, unsafe_allow_html=True)
-if st.session_state['logged_in']:
-    st.markdown(dashboard_css, unsafe_allow_html=True)
-else:
-    st.markdown(login_css, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 # --- 3. CONEXIÓN ---
 AVATARS = {"avatar_1": "👨‍💼", "avatar_2": "👩‍💼", "avatar_3": "👷‍♂️", "avatar_4": "👩‍💻"} 
@@ -360,7 +302,34 @@ def generar_pdf_pod(data, pod_uuid, from_history=False):
     pdf.rect(10,y+5,80,40); pdf.text(110,y,"RECIBIDO POR:"); pdf.rect(110,y+5,80,40)
     return pdf.output(dest='S').encode('latin-1')
 
-# --- MODAL GESTIÓN DE CARGA (AHORA CON ESCÁNER Y VALIDACIÓN) ---
+# --- ADMIN FUNCTIONS ---
+def admin_crear_usuario(u, r):
+    conn = get_connection(); 
+    if conn:
+        try: conn.cursor().execute("INSERT INTO usuarios (username, password, rol, avatar) VALUES (%s, '123456', %s, 'avatar_1')", (u, r)); conn.commit(); conn.close(); return True
+        except: pass; return False
+def admin_get_users():
+    conn = get_connection(); return pd.read_sql("SELECT id, username, rol, activo FROM usuarios", conn) if conn else pd.DataFrame()
+def admin_toggle(uid, curr):
+    conn = get_connection(); conn.cursor().execute("UPDATE usuarios SET activo=%s WHERE id=%s", (0 if curr==1 else 1, uid)); conn.commit(); conn.close()
+def admin_update_role(uid, new_role):
+    conn = get_connection(); 
+    if conn: conn.cursor().execute("UPDATE usuarios SET rol=%s WHERE id=%s", (new_role, uid)); conn.commit(); conn.close(); return True; return False
+def admin_restablecer_password(rid, uname):
+    conn = get_connection(); 
+    if conn: cur=conn.cursor(); cur.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (uname,)); cur.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (rid,)); conn.commit(); conn.close()
+def solicitar_reset_pass(username):
+    conn = get_connection(); 
+    if not conn: return "error"
+    try: cur = conn.cursor(); cur.execute("SELECT id FROM usuarios WHERE username=%s", (username,)); 
+    if cur.fetchone(): cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,)); conn.commit(); conn.close(); return "ok"
+    conn.close(); return "no_user"
+    except: return "error"
+def cambiar_password(uid, np):
+    conn=get_connection();
+    if conn: conn.cursor().execute("UPDATE usuarios SET password=%s WHERE id=%s",(np, uid)); conn.commit(); conn.close(); return True; return False
+
+# --- MODAL GESTIÓN CARGA (CON CÁMARA) ---
 @st.dialog("Gestión de Carga")
 def modal_registro(datos=None):
     rol = st.session_state['user_info']['rol']
@@ -378,7 +347,6 @@ def modal_registro(datos=None):
         d_paq = datos.get('paquetes', 0); d_com = datos.get('comentarios', "")
         d_esp = len([x for x in re.split(r'[\n, ]+', d_mast) if x.strip()]) or 1
 
-    # --- FORMULARIO DE CARGA ---
     with st.form("frm"):
         c1, c2 = st.columns(2)
         with c1:
@@ -387,80 +355,56 @@ def modal_registro(datos=None):
             clin = st.selectbox("Cliente", PLATAFORMAS, index=PLATAFORMAS.index(d_plat), disabled=disabled)
         with c2:
             sin = st.selectbox("Servicio", SERVICIOS, index=SERVICIOS.index(d_serv) if d_serv in SERVICIOS else 0, disabled=disabled)
-            # Campo de validación (Cantidad Esperada)
-            esperados = st.number_input("Cantidad Esperada (Validación)", min_value=1, value=d_esp, disabled=disabled)
-            pain = st.number_input("Total Paquetes (Manual)", 0, value=int(d_paq), disabled=disabled, help="Se actualizará si escaneas")
+            esperados = st.number_input("Masters Esperadas", min_value=1, value=d_esp, disabled=disabled)
+            pain = st.number_input("Total Paquetes", 0, value=int(d_paq), disabled=disabled)
 
         st.markdown("---")
         st.write("📋 **Escaneo / Ingreso de Masters**")
         
-        # --- SECCIÓN DE CÁMARA (NUEVO) ---
+        # CÁMARA EN MODAL
         col_cam, col_txt = st.columns([1,2])
-        activar_cam = col_cam.toggle("📷 Escanear con Cámara")
-        
+        activar_cam = col_cam.toggle("📷 Usar Cámara")
         if activar_cam:
-            img = st.camera_input("Apunta al código")
+            img = st.camera_input("Escanear código")
             if img:
                 codes = decode_image(img)
                 if codes:
                     st.success(f"Leído: {codes[0]}")
                     if codes[0] not in st.session_state['scan_buffer_modal']:
                         st.session_state['scan_buffer_modal'].append(codes[0])
-                    else: st.warning("Ya escaneado")
-
-        # Mostrar acumulado de escaneos
-        if st.session_state['scan_buffer_modal']:
-            st.info(f"En memoria: {len(st.session_state['scan_buffer_modal'])} códigos. (Se añadirán al texto)")
-            if st.button("Limpiar Escaneos"): st.session_state['scan_buffer_modal'] = []; st.rerun()
-
-        # Concatenar buffer de cámara con texto existente
-        valor_actual = d_mast
-        if st.session_state['scan_buffer_modal']:
-            valor_actual += "\n" + "\n".join(st.session_state['scan_buffer_modal'])
-            # Limpiar buffer para no duplicar en siguientes reruns
-            # (Nota: en Streamlit form esto es truco, mejor dejar que el usuario edite el text area final)
         
-        # AREA DE TEXTO FINAL (Editable)
-        # Aquí el usuario ve lo escaneado y puede pegar masivamente
-        masters_input = st.text_area("Masters (Uno por línea o espacios)", value=valor_actual, height=150, disabled=disabled)
+        # Buffer de escaneo
+        if st.session_state.get('scan_buffer_modal'):
+            st.info(f"Escaneados: {len(st.session_state['scan_buffer_modal'])}")
+            if st.button("Borrar Escaneos"): st.session_state['scan_buffer_modal'] = []; st.rerun()
         
-        # --- VALIDACIÓN EN TIEMPO REAL ---
-        # Limpieza
+        # Combinar
+        val_txt = d_mast
+        if st.session_state.get('scan_buffer_modal'):
+            val_txt += "\n" + "\n".join(st.session_state['scan_buffer_modal'])
+
+        masters_input = st.text_area("Masters (Uno por línea)", value=val_txt, height=150, disabled=disabled)
+        
+        # Validar
         lista_final = [m.strip() for m in re.split(r'[\n, ]+', masters_input) if m.strip()]
-        conteo_real = len(lista_final)
-        unicos = len(set(lista_final))
+        conteo_real = len(lista_final); unicos = len(set(lista_final))
         
-        c_v1, c_v2 = st.columns(2)
-        c_v1.caption(f"Leídos: {conteo_real} | Únicos: {unicos}")
-        
-        # Alertas Visuales
-        if conteo_real != unicos:
-            st.markdown(f"<div class='count-err'>⚠️ ALERTA: Hay {conteo_real - unicos} códigos duplicados!</div>", unsafe_allow_html=True)
-        
+        c_v1, c_v2 = st.columns(2); c_v1.caption(f"Leídos: {conteo_real}")
+        if conteo_real != unicos: st.markdown(f"<div class='count-err'>⚠️ {conteo_real-unicos} Duplicados</div>", unsafe_allow_html=True)
         if esperados > 0:
-            if conteo_real == esperados:
-                c_v2.markdown(f"<div class='count-ok'>✅ Cuadra Perfecto ({conteo_real}/{esperados})</div>", unsafe_allow_html=True)
-            else:
-                diff = conteo_real - esperados
-                msg = f"Sobran {diff}" if diff > 0 else f"Faltan {abs(diff)}"
-                c_v2.markdown(f"<div class='count-err'>❌ No cuadra ({msg})</div>", unsafe_allow_html=True)
+            if conteo_real == esperados: c_v2.markdown(f"<div class='count-ok'>✅ Cuadra</div>", unsafe_allow_html=True)
+            else: c_v2.markdown(f"<div class='count-err'>❌ Dif: {conteo_real-esperados}</div>", unsafe_allow_html=True)
 
         com = st.text_area("Notas", d_com, disabled=disabled)
         
         if not disabled:
-            if st.form_submit_button("💾 Guardar Datos", type="primary", use_container_width=True):
-                # Usar el conteo real escaneado como cantidad de paquetes si se desea auto-actualizar
-                # Ojo: guardamos 'pain' (input manual) o 'conteo_real' (escaneado)? 
-                # Generalmente en logistica el escaneo MANDA.
-                paquetes_final = conteo_real if conteo_real > 0 else pain
-                
-                guardar_registro(d_id, fin, pin, clin, sin, masters_input, paquetes_final, com)
-                st.session_state['scan_buffer_modal'] = [] # Limpiar memoria
+            if st.form_submit_button("💾 Guardar", type="primary"):
+                guardar_registro(d_id, fin, pin, clin, sin, masters_input, pain, com)
+                st.session_state['scan_buffer_modal'] = []
                 st.rerun()
 
     if d_id is not None and not disabled:
-        st.markdown("---")
-        with st.expander("🗑️ Eliminar Registro"):
+        with st.expander("🗑️ Eliminar"):
             p_del = st.text_input("Clave Admin:", type="password")
             if st.button("Confirmar Borrado", type="secondary"):
                 if eliminar_registro(d_id, p_del): st.rerun()
@@ -470,12 +414,26 @@ def modal_registro(datos=None):
 # ==============================================================================
 
 if not st.session_state['logged_in']:
-    st.markdown("<br><h2 style='text-align: center;'>Nexus Logística</h2>", unsafe_allow_html=True)
-    u = st.text_input("Usuario"); p = st.text_input("Contraseña", type="password")
-    if st.button("ACCEDER"):
-        user = verificar_login(u, p)
-        if user: st.session_state['logged_in'] = True; st.session_state['user_info'] = user; st.rerun()
-        else: st.error("Error credenciales")
+    st.markdown("<div style='height: 50px'></div>", unsafe_allow_html=True)
+    st.markdown("<div class='login-container'><h2 style='color:#1e293b;'>Nexus Logística</h2></div>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1,2,1])
+    with col2:
+        u = st.text_input("Usuario", placeholder="Usuario")
+        p = st.text_input("Contraseña", type="password", placeholder="Contraseña")
+        if st.button("ACCEDER"):
+            user = verificar_login(u, p)
+            if user: st.session_state['logged_in'] = True; st.session_state['user_info'] = user; st.rerun()
+            else: st.error("Error credenciales")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        with st.expander("Recuperar contraseña"):
+            ur = st.text_input("Usuario recuperación")
+            if st.button("Solicitar Reset"):
+                r = solicitar_reset_pass(ur)
+                if r=="ok": st.success("Enviado")
+                else: st.warning("Error")
+
 else:
     u_info = st.session_state['user_info']; rol = u_info['rol']
     
@@ -547,38 +505,51 @@ else:
                         st.download_button("Manifiesto", to_excel_bytes(d['main'],ext), f"{m}.{ext}")
                         st.download_button("Costos", to_excel_bytes(d['costos'],ext), f"{m}_Costos.{ext}")
 
-    elif vista == "pod_digital":
+    elif vista == "pod":
         st.title("POD Digital")
         t1, t2 = st.tabs(["Nueva", "Historial"])
         with t1:
             with st.form("pod_form"):
                 c1,c2 = st.columns(2); cli = c1.selectbox("Cliente", ["Mail Americas","APG","IMILE"]); rut = c2.text_input("Ruta")
                 c3,c4 = st.columns(2); resp = c3.text_input("Responsable"); bult = c4.number_input("Bultos",0)
-                st.write("**Carga**")
+                paq_obj = st.number_input("Paquetes Declarados",1)
                 
-                # --- CÁMARA POD ---
+                # CÁMARA POD
                 act_cam_pod = st.toggle("Usar Cámara")
                 if act_cam_pod:
-                    img_pod = st.camera_input("Scan POD")
+                    img_pod = st.camera_input("Scan")
                     if img_pod:
                         res_pod = decode_image(img_pod)
-                        if res_pod: st.success(f"Leído: {res_pod[0]}")
-                        # Nota: En form la logica compleja de acumulacion es dificil, mejor textarea directo
+                        if res_pod: 
+                            if res_pod[0] not in st.session_state.get('scanned_trackings',[]):
+                                st.session_state['scanned_trackings'].append(res_pod[0])
+                                st.success(f"Leído: {res_pod[0]}")
+                            else: st.warning("Repetido")
                 
-                track_raw = st.text_area("Trackings")
+                # Mostrar acumulado
+                curr_scan = "\n".join(st.session_state.get('scanned_trackings',[]))
+                track_raw = st.text_area("Trackings", value=curr_scan, height=150)
+                
                 firma = st_canvas(fill_color="rgba(255, 165, 0, 0.3)", stroke_width=2, height=150)
                 sub_pod = st.form_submit_button("Generar")
             
+            if st.button("Limpiar Escaneos"): st.session_state['scanned_trackings'] = []; st.rerun()
+
             if sub_pod:
                 ts = [t.strip() for t in track_raw.split('\n') if t.strip()]
-                if not rut or not ts: st.error("Datos faltantes")
+                unique_ts = list(set(ts))
+                
+                if len(ts) != len(unique_ts): st.error(f"Duplicados: {len(ts)-len(unique_ts)}")
+                elif len(ts) != paq_obj: st.error(f"No cuadra: Leídos {len(ts)} vs Declarados {paq_obj}")
+                elif not rut or not ts: st.error("Datos faltantes")
                 else:
                     d_pod = {"cliente":cli,"ruta":rut,"responsable":resp,"bultos":bult,"trackings":ts,"firma_img":firma if firma.image_data is not None else None}
-                    uid, err = guardar_pod_digital(cli, rut, resp, len(ts), bult, ts, firma)
+                    uid, err = guardar_pod_digital(cli, rut, resp, paq_obj, bult, ts, firma)
                     if uid:
                         st.success("Guardado")
                         st.session_state['last_pod_pdf'] = generar_pdf_pod(d_pod, uid)
                         st.session_state['last_pod_name'] = f"POD_{uid[:4]}.pdf"
+                        st.session_state['scanned_trackings'] = []
                         st.rerun()
             
             if st.session_state['last_pod_pdf']:
@@ -588,4 +559,4 @@ else:
             conn=get_connection(); df_p = pd.read_sql("SELECT * FROM pods ORDER BY fecha DESC LIMIT 20", conn); conn.close()
             st.dataframe(df_p)
 
-    # ... (Resto de vistas Admin/Config igual)
+    # ... (Resto de vistas Admin igual)
