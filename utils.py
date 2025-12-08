@@ -11,7 +11,8 @@ PROVEEDORES = ["Mail Americas", "APG", "IMILE", "GLC"]
 PLATAFORMAS = ["AliExpress", "Shein", "Temu"]
 SERVICIOS = ["Aduana Propia", "Solo Ultima Milla"]
 
-# --- CONEXIÓN BD ---
+# --- CONEXIÓN BD (Con Caché para mayor velocidad) ---
+@st.cache_resource
 def get_connection():
     try:
         return mysql.connector.connect(
@@ -28,8 +29,10 @@ def verificar_login(u, p):
     if not conn: return None
     try:
         cur = conn.cursor(dictionary=True)
-        cur.execute("SELECT * FROM usuarios WHERE username=%s AND password=%s AND activo=1", (u, p))
-        res = cur.fetchone(); conn.close(); return res
+        # Nota: Asegúrate de que tu tabla tenga 'activo' o quita 'AND activo=1' si da error
+        cur.execute("SELECT * FROM usuarios WHERE username=%s AND password=%s", (u, p))
+        res = cur.fetchone()
+        return res
     except: return None
 
 # --- HERRAMIENTAS ---
@@ -55,7 +58,7 @@ def to_excel_bytes(df, fmt='xlsx'):
 
 # --- CSS GLOBAL DINÁMICO ---
 def load_css(tema="light"):
-    # Definición de paletas
+    # Definición de paletas de colores
     if tema == "dark":
         bg_color = "#1e1e1e"
         text_color = "#e0e0e0"
@@ -77,13 +80,14 @@ def load_css(tema="light"):
 
     st.markdown(f"""
     <style>
+        /* Ocultar elementos por defecto de Streamlit */
         [data-testid="stSidebarNav"], [data-testid="stToolbar"], footer {{ display: none !important; }}
-        .stApp {{ background-color: {bg_color}; font-family: 'Segoe UI', sans-serif; color: {text_color}; }}
         
-        /* Ajuste de textos globales */
+        /* Tema Global */
+        .stApp {{ background-color: {bg_color}; font-family: 'Segoe UI', sans-serif; color: {text_color}; }}
         h1, h2, h3, p, div, span, label, li {{ color: {text_color}; }}
         
-        /* BOTONES MENU HOME */
+        /* Botones del Menú Principal */
         .menu-btn {{
             width: 100%; height: 100px !important;
             border: 1px solid #e2e8f0; border-radius: 15px;
@@ -94,22 +98,18 @@ def load_css(tema="light"):
         }}
         .menu-btn:hover {{ transform: translateY(-3px); box-shadow: 0 10px 15px rgba(0,0,0,0.1); border-color: #3b82f6; }}
         
-        /* BOTÓN VOLVER */
+        /* Botones estándar */
         div.stButton > button:first-child {{ width: 100%; border-radius: 10px; font-weight: 600; }}
         
-        /* KPIs */
+        /* Tarjetas KPI */
         .kpi-card {{ background: {card_bg}; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 10px; }}
         .kpi-val {{ font-size: 1.4rem; font-weight: 800; color: {text_color}; }}
         .kpi-lbl {{ font-size: 0.75rem; color: #64748b; font-weight: 700; text-transform: uppercase; }}
         
-        /* ALERTAS */
-        .count-ok {{ color: #16a34a; font-weight: bold; background:#dcfce7; padding:4px 8px; border-radius:6px; }}
-        .count-err {{ color: #dc2626; font-weight: bold; background:#fee2e2; padding:4px 8px; border-radius:6px; }}
-        
-        /* INPUTS EN MODO OSCURO */
+        /* Estilos de inputs en modo oscuro */
         input, select, textarea {{ background-color: {card_bg} !important; color: {text_color} !important; }}
         
-        /* Sidebar (Info Usuario) */
-        section[data-testid="stSidebar"] {{ width: 250px !important; }}
+        /* Estilo para foto redonda */
+        .profile-img {{ border-radius: 50%; border: 3px solid #ccc; }}
     </style>
     """, unsafe_allow_html=True)
