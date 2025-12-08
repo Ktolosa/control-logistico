@@ -161,15 +161,11 @@ def buscar_trackings_masivo(lista_trackings):
     except: return pd.DataFrame()
 
 def obtener_resumen_bases():
-    """
-    CORRECCIÓN: Se actualizó el ORDER BY para que use el alias 'fecha_creacion'
-    o la función de agregación MAX(created_at). Esto soluciona el error en MySQL 8/TiDB
-    cuando 'ONLY_FULL_GROUP_BY' está activado.
-    """
     conn = get_connection()
     if not conn: return pd.DataFrame()
     try:
         import pandas as pd
+        # ORDER BY MAX(created_at) para compatibilidad con MySQL estricto
         query = """
             SELECT 
                 invoice, 
@@ -186,7 +182,6 @@ def obtener_resumen_bases():
         conn.close()
         return pd.DataFrame(data)
     except Exception as e:
-        # Esto te ayudará a ver errores en los logs si algo falla
         print(f"Error SQL Resumen: {e}") 
         return pd.DataFrame()
 
@@ -200,30 +195,55 @@ def eliminar_base_invoice(invoice):
         return True
     except: return False
 
-# --- CSS DINÁMICO ---
+# --- CSS DINÁMICO (ACTUALIZADO PARA OCULTAR MARCAS DE AGUA) ---
 def load_css(theme_code="light"):
     t = THEMES.get(theme_code, THEMES["light"])
     border_color = t.get("border", "#e2e8f0")
     
     css = f"""
     <style>
-        [data-testid="stSidebarNav"], [data-testid="stToolbar"], footer {{ display: none !important; }}
+        /* --- OCULTAR ELEMENTOS NATIVOS DE STREAMLIT --- */
+        [data-testid="stSidebarNav"], [data-testid="stToolbar"], footer, header {{ display: none !important; }}
+        #MainMenu {{ visibility: hidden; }}
+        [data-testid="stStatusWidget"] {{ visibility: hidden; }}
+        .stDeployButton {{ display: none; }}
+        [data-testid="stDecoration"] {{ display: none; }}
+        
+        /* --- VARIABLES GLOBALES DEL TEMA --- */
         :root {{ --primary-color: {t['btn_pri']}; --background-color: {t['bg']}; --secondary-background-color: {t['card']}; --text-color: {t['text']}; }}
+        
+        /* Aplicación Principal */
         .stApp {{ background-color: {t['bg']}; font-family: 'Segoe UI', sans-serif; color: {t['text']}; }}
         h1, h2, h3, h4, h5, h6, p, div, span, label, li, .stDataFrame {{ color: {t['text']} !important; }}
+        
+        /* Sidebar / Navegación */
         section[data-testid="stSidebar"] {{ background-color: {t['nav_bg']} !important; border-right: 1px solid {border_color}; }}
         section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] div {{ color: {t['nav_text']} !important; }}
+        
+        /* BOTONES MENU HOME */
         .menu-btn {{ width: 100%; height: 100px !important; border: 1px solid {border_color}; border-radius: 15px; background-color: {t['card']}; color: {t['text']}; font-size: 18px; font-weight: 600; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 4px 6px rgba(0,0,0,0.05); transition: all 0.2s; margin-bottom: 15px; }}
         .menu-btn:hover {{ transform: translateY(-3px); box-shadow: 0 10px 15px rgba(0,0,0,0.1); border-color: {t['btn_pri']}; color: {t['btn_pri']}; }}
+        
+        /* Botones Estándar de Streamlit */
         div.stButton > button:first-child {{ width: 100%; border-radius: 10px; font-weight: 600; border: 1px solid {border_color}; color: {t['text']}; background-color: {t['card']}; }}
         div.stButton > button:first-child:hover {{ border-color: {t['btn_pri']}; color: {t['btn_pri']}; }}
+        
+        /* Botones Primarios (Type="primary") */
         div.stButton > button[kind="primary"] {{ background-color: {t['btn_pri']} !important; color: {t['btn_txt']} !important; border: none !important; }}
+        
+        /* Inputs y Selects */
         .stTextInput > div > div > input, .stSelectbox > div > div > div, .stTextArea > div > div > textarea, .stNumberInput > div > div > input {{ background-color: {t['card']} !important; color: {t['text']} !important; border-color: {border_color} !important; }}
+        
+        /* Tarjetas y Contenedores */
         .kpi-card, [data-testid="stExpander"], div.stForm {{ background: {t['card']}; border: 1px solid {border_color}; border-radius: 12px; padding: 15px; }}
         .kpi-val {{ font-size: 1.4rem; font-weight: 800; color: {t['text']}; }}
         .kpi-lbl {{ font-size: 0.75rem; opacity: 0.8; font-weight: 700; text-transform: uppercase; }}
+        
+        /* ALERTAS */
         .count-ok {{ color: {t['ok_txt']}; font-weight: bold; background:{t['ok_bg']}; padding:4px 8px; border-radius:6px; border: 1px solid {t['ok_txt']}; }}
         .count-err {{ color: {t['err_txt']}; font-weight: bold; background:{t['err_bg']}; padding:4px 8px; border-radius:6px; border: 1px solid {t['err_txt']};}}
+        
+        /* Pestañas */
         .stTabs [data-baseweb="tab-list"] {{ border-bottom-color: {border_color}; }}
         .stTabs [data-baseweb="tab"] {{ color: {t['text']}; }}
         .stTabs [aria-selected="true"] {{ color: {t['btn_pri']} !important; border-top-color: {t['btn_pri']} !important; }}
