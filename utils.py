@@ -218,3 +218,70 @@ def load_css(theme_code="light"):
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
+# --- FUNCIONES PARA TRACKING PRO ---
+def init_tracking_db():
+    """Crea la tabla si no existe"""
+    conn = get_connection()
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS tracking_db (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    invoice VARCHAR(100) NOT NULL,
+                    tracking VARCHAR(100) NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_tracking (tracking),
+                    INDEX idx_invoice (invoice)
+                );
+            """)
+            conn.commit(); conn.close()
+        except: pass
+
+def guardar_base_tracking(invoice, lista_trackings):
+    conn = get_connection()
+    if not conn: return False, "Error de conexión"
+    try:
+        cur = conn.cursor()
+        # Verificar si ya existe el invoice para advertir o limpiar (opcional, aquí solo agregamos)
+        # Inserción masiva
+        vals = [(invoice, t) for t in lista_trackings]
+        cur.executemany("INSERT INTO tracking_db (invoice, tracking) VALUES (%s, %s)", vals)
+        conn.commit(); conn.close()
+        return True, f"{len(vals)} trackings guardados en {invoice}"
+    except Exception as e: return False, str(e)
+
+def buscar_trackings_masivo(lista_trackings):
+    conn = get_connection()
+    if not conn: return pd.DataFrame()
+    try:
+        # Convertimos la lista a formato SQL seguro para IN (...)
+        format_strings = ','.join(['%s'] * len(lista_trackings))
+        query = f"SELECT tracking, invoice FROM tracking_db WHERE tracking IN ({format_strings})"
+        
+        import pandas as pd
+        df = pd.read_sql(query, conn, params=tuple(lista_trackings))
+        conn.close()
+        return df
+    except: return pd.DataFrame()
+
+def obtener_resumen_bases():
+    conn = get_connection()
+    if not conn: return pd.DataFrame()
+    try:
+        query = "SELECT invoice, COUNT(*) as cantidad, MAX(created_at) as fecha_creacion FROM tracking_db GROUP BY invoice ORDER BY created_at DESC"
+        import pandas as pd
+        df = pd.read_sql(query, conn)
+        conn.close()
+        return df
+    except: return pd.DataFrame()
+
+def eliminar_base_invoice(invoice):
+    conn = get_connection()
+    if not conn: return False
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM tracking_db WHERE invoice = %s", (invoice,))
+        conn.commit(); conn.close()
+        return True
+    except: return False
