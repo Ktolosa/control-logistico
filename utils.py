@@ -1,42 +1,44 @@
+# utils.py
 import streamlit as st
 import mysql.connector
-import pandas as pd
+import cv2
+import numpy as np
+from pyzbar.pyzbar import decode
 
-# Configuración de conexión segura
+# --- CONFIGURACIÓN CSS COMPARTIDA ---
+def load_css(sidebar_width="70px"):
+    # ... (PEGA AQUÍ TU CSS GIGANTE QUE YA TIENES EN APP.PY) ...
+    # Asegúrate de mantener los media queries para móvil y escritorio.
+    st.markdown(f"""<style> ... TU CSS ... </style>""", unsafe_allow_html=True)
+
+# --- CONEXIÓN BASE DE DATOS ---
 def get_connection():
-    return mysql.connector.connect(
-        host=st.secrets["mysql"]["host"],
-        user=st.secrets["mysql"]["user"],
-        password=st.secrets["mysql"]["password"],
-        database=st.secrets["mysql"]["database"]
-    )
-
-# Cargar datos formateados
-def cargar_datos():
     try:
-        conn = get_connection()
-        query = "SELECT * FROM registro_diario"
-        df = pd.read_sql(query, conn)
-        conn.close()
-        if not df.empty:
-            df['fecha'] = pd.to_datetime(df['fecha'])
-            df['fecha_str'] = df['fecha'].dt.strftime('%Y-%m-%d')
-        return df
-    except Exception as e:
-        st.error(f"Error de conexión: {e}")
-        return pd.DataFrame()
+        return mysql.connector.connect(
+            host=st.secrets["mysql"]["host"],
+            user=st.secrets["mysql"]["user"],
+            password=st.secrets["mysql"]["password"],
+            database=st.secrets["mysql"]["database"]
+        )
+    except: return None
 
-# Guardar o Actualizar registro
-def guardar_registro(fecha, paquetes, masters, proveedor, comentarios):
+# --- AUTH ---
+def verificar_login(u, p):
     conn = get_connection()
-    cursor = conn.cursor()
-    query = """
-    INSERT INTO registro_diario (fecha, paquetes, masters, proveedor, comentarios)
-    VALUES (%s, %s, %s, %s, %s)
-    ON DUPLICATE KEY UPDATE
-    paquetes=%s, masters=%s, proveedor=%s, comentarios=%s
-    """
-    vals = (fecha, paquetes, masters, proveedor, comentarios, paquetes, masters, proveedor, comentarios)
-    cursor.execute(query, vals)
-    conn.commit()
-    conn.close()
+    if not conn: return None
+    try:
+        cur = conn.cursor(dictionary=True)
+        cur.execute("SELECT * FROM usuarios WHERE username=%s AND password=%s AND activo=1", (u, p))
+        res = cur.fetchone(); conn.close(); return res
+    except: return None
+
+# --- UTILIDADES VARIAS ---
+def decode_image(image_file):
+    # ... (Tu función de decodificar) ...
+    try:
+        bytes_data = image_file.getvalue()
+        file_bytes = np.asarray(bytearray(bytes_data), dtype=np.uint8)
+        img = cv2.imdecode(file_bytes, 1)
+        decoded_objects = decode(img)
+        return [obj.data.decode('utf-8') for obj in decoded_objects]
+    except: return []
