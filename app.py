@@ -35,6 +35,7 @@ if "pod_uuid" in query_params:
     st.set_page_config(layout="centered", page_title="Descarga POD")
     uuid_target = query_params["pod_uuid"]
     st.markdown("<br><h2 style='text-align:center;'>📦 Descarga POD</h2>", unsafe_allow_html=True)
+    
     try:
         conn = mysql.connector.connect(
             host=st.secrets["mysql"]["host"], user=st.secrets["mysql"]["user"],
@@ -72,7 +73,6 @@ SIDEBAR_WIDTH = "70px"
 
 base_css = """
 <style>
-    /* Ocultar elementos innecesarios */
     [data-testid="stSidebarNav"] { display: none !important; }
     [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stHeader"], footer { visibility: hidden !important; }
     .stApp { background-color: #f8fafc; font-family: 'Segoe UI', sans-serif; }
@@ -92,8 +92,7 @@ dashboard_css = f"""
 <style>
     /* --- VISTA ESCRITORIO (PC) --- */
     @media (min-width: 768px) {{
-        [data-testid="collapsedControl"] {{ display: none !important; }} /* Ocultar flecha nativa en PC */
-        
+        [data-testid="collapsedControl"] {{ display: none !important; }}
         section[data-testid="stSidebar"] {{
             display: block !important; width: {SIDEBAR_WIDTH} !important; min-width: {SIDEBAR_WIDTH} !important;
             transform: none !important; visibility: visible !important;
@@ -108,40 +107,19 @@ dashboard_css = f"""
 
     /* --- VISTA MÓVIL (CELULAR) --- */
     @media (max-width: 767px) {{
-        /* Flecha flotante personalizada en el medio a la izquierda */
         [data-testid="collapsedControl"] {{
-            display: flex !important;
-            top: 50% !important;
-            left: 0px !important;
-            background-color: #2563eb !important;
-            color: white !important;
-            border-radius: 0 10px 10px 0 !important;
-            z-index: 999999 !important;
-            width: 30px !important;
-            height: 50px !important;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 2px 2px 10px rgba(0,0,0,0.2);
+            display: flex !important; top: 50% !important; left: 0px !important;
+            background-color: #2563eb !important; color: white !important;
+            border-radius: 0 10px 10px 0 !important; z-index: 999999 !important;
+            width: 30px !important; height: 50px !important;
+            align-items: center; justify-content: center;
         }}
-        
-        /* La barra lateral normal de streamlit, pero accesible via la flecha */
         section[data-testid="stSidebar"] {{
-            background-color: white !important;
-            top: 0 !important;
-            height: 100vh !important;
-            z-index: 999990 !important;
+            background-color: white !important; top: 0 !important; height: 100vh !important; z-index: 999990 !important;
         }}
-        
-        /* Ajustar contenido */
-        section[data-testid="stSidebar"] > div {{
-            padding-top: 50px !important; /* Espacio arriba */
-            display: block !important; /* Normal flow en movil */
-        }}
-        
+        section[data-testid="stSidebar"] > div {{ padding-top: 50px !important; display: block !important; }}
         .main .block-container {{ margin-left: 0 !important; width: 100% !important; padding: 1rem; }}
-        
-        .avatar-float {{ position: relative !important; margin: 0 auto 20px auto !important; top: 0 !important; }}
-        .logout-float {{ position: relative !important; margin-top: 30px !important; bottom: 0 !important; }}
+        .avatar-float, .logout-float {{ display: none !important; }}
     }}
 
     /* --- ESTILOS COMUNES --- */
@@ -261,7 +239,7 @@ def eliminar_registro(id_reg, admin_pass):
         except: return False
     return False
 
-# --- LOGICA TEMU ---
+# --- LOGICA TEMU / EXCEL (CORREGIDO ERROR SINTAXIS) ---
 def procesar_archivo_temu(uploaded_file):
     try:
         df_raw = pd.read_excel(uploaded_file, header=None).fillna("")
@@ -284,11 +262,15 @@ def procesar_archivo_temu(uploaded_file):
 
 def to_excel_bytes(df, fmt='xlsx'):
     out = io.BytesIO()
-    if fmt == 'xlsx': with pd.ExcelWriter(out, engine='xlsxwriter') as w: df.to_excel(w, index=False)
-    else: with pd.ExcelWriter(out, engine='xlwt') as w: df.to_excel(w, index=False)
+    if fmt == 'xlsx':
+        with pd.ExcelWriter(out, engine='xlsxwriter') as w:
+            df.to_excel(w, index=False, sheet_name='Sheet1')
+    else:
+        with pd.ExcelWriter(out, engine='xlwt') as w:
+            df.to_excel(w, index=False, sheet_name='Sheet1')
     return out.getvalue()
 
-# --- FUNCIONES POD ---
+# --- FUNCIONES POD / PDF ---
 def generate_pod_code(): return ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
 
 def guardar_pod_digital(cliente, ruta, responsable, paq_dec, bultos, trackings, firma_canvas):
@@ -320,7 +302,7 @@ def recuperar_datos_pod(uid):
 def generar_pdf_pod(data, pod_uuid, from_history=False):
     pdf = FPDF(); pdf.add_page(); pdf.set_fill_color(37,99,235); pdf.rect(0,0,210,40,'F')
     pdf.set_text_color(255,255,255); pdf.set_font("Arial",'B',24); pdf.text(10,18,"MANIFIESTO / POD")
-    pdf.set_font("Arial",'',10); pdf.text(10,28,f"ID: {data.get('pod_code','N/A')} (Ref:{pod_uuid[:6]})"); 
+    pdf.set_font("Arial",'',10); pdf.text(10,28,f"ID: {data.get('pod_code','N/A')}"); 
     fd = data.get('fecha', datetime.now()); pdf.text(10,34,f"Fecha: {fd if isinstance(fd,str) else fd.strftime('%Y-%m-%d %H:%M')}")
     
     qr = qrcode.make(f"{APP_BASE_URL}/?pod_uuid={pod_uuid}"); qr.save("qr.png")
@@ -347,42 +329,76 @@ def generar_pdf_pod(data, pod_uuid, from_history=False):
     pdf.rect(10,y+5,80,40); pdf.text(110,y,"RECIBIDO POR:"); pdf.rect(110,y+5,80,40)
     return pdf.output(dest='S').encode('latin-1')
 
-# --- FUNCIONES ADMIN ---
+# --- FUNCIONES ADMIN (CORREGIDAS) ---
 def admin_crear_usuario(u, r):
     conn = get_connection()
     if conn:
-        try: conn.cursor().execute("INSERT INTO usuarios (username, password, rol, avatar) VALUES (%s, '123456', %s, 'avatar_1')", (u, r)); conn.commit(); conn.close(); return True
-        except: pass
-    return False
-def admin_get_users():
-    conn = get_connection(); return pd.read_sql("SELECT id, username, rol, activo FROM usuarios", conn) if conn else pd.DataFrame()
-def admin_toggle(uid, curr):
-    conn = get_connection(); conn.cursor().execute("UPDATE usuarios SET activo=%s WHERE id=%s", (0 if curr==1 else 1, uid)); conn.commit(); conn.close()
-def admin_update_role(uid, new_role):
-    conn = get_connection(); 
-    if conn: conn.cursor().execute("UPDATE usuarios SET rol=%s WHERE id=%s", (new_role, uid)); conn.commit(); conn.close(); return True; return False
-def admin_restablecer_password(rid, uname):
-    conn = get_connection(); 
-    if conn: cur=conn.cursor(); cur.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (uname,)); cur.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (rid,)); conn.commit(); conn.close()
-def solicitar_reset_pass(username):
-    conn = get_connection(); 
-    if not conn: return "error"
-    try:
-        cur = conn.cursor(); cur.execute("SELECT id FROM usuarios WHERE username=%s", (username,)); 
-        if cur.fetchone():
-            cur.execute("SELECT id FROM password_requests WHERE username=%s AND status='pendiente'", (username,)); 
-            if not cur.fetchone(): cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,)); conn.commit(); conn.close(); return "ok"
-            return "pendiente"
-        conn.close(); return "no_user"
-    except: return "error"
-def cambiar_password(uid, np):
-    conn=get_connection();
-    if conn:
-        try: conn.cursor().execute("UPDATE usuarios SET password=%s WHERE id=%s",(np, uid)); conn.commit(); conn.close(); return True
+        try:
+            cur = conn.cursor()
+            cur.execute("INSERT INTO usuarios (username, password, rol, avatar) VALUES (%s, '123456', %s, 'avatar_1')", (u, r))
+            conn.commit(); conn.close(); return True
         except: pass
     return False
 
-# --- MODAL ---
+def admin_get_users():
+    conn = get_connection(); 
+    if conn:
+        df = pd.read_sql("SELECT id, username, rol, activo FROM usuarios", conn)
+        conn.close(); return df
+    return pd.DataFrame()
+
+def admin_toggle(uid, curr):
+    conn = get_connection()
+    if conn:
+        cur = conn.cursor()
+        new_status = 0 if curr == 1 else 1
+        cur.execute("UPDATE usuarios SET activo=%s WHERE id=%s", (new_status, uid))
+        conn.commit(); conn.close()
+
+def admin_update_role(uid, new_role):
+    conn = get_connection()
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute("UPDATE usuarios SET rol=%s WHERE id=%s", (new_role, uid))
+            conn.commit(); conn.close(); return True
+        except: pass
+    return False
+
+def admin_restablecer_password(rid, uname):
+    conn = get_connection()
+    if conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE usuarios SET password='123456' WHERE username=%s", (uname,))
+        cur.execute("UPDATE password_requests SET status='resuelto' WHERE id=%s", (rid,))
+        conn.commit(); conn.close()
+
+def solicitar_reset_pass(username):
+    conn = get_connection()
+    if not conn: return "error"
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM usuarios WHERE username=%s", (username,))
+        if cur.fetchone():
+            cur.execute("SELECT id FROM password_requests WHERE username=%s AND status='pendiente'", (username,))
+            if not cur.fetchone():
+                cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,))
+                conn.commit(); conn.close(); return "ok"
+            conn.close(); return "pendiente"
+        conn.close(); return "no_user"
+    except: return "error"
+
+def cambiar_password(uid, np):
+    conn = get_connection()
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute("UPDATE usuarios SET password=%s WHERE id=%s", (np, uid))
+            conn.commit(); conn.close(); return True
+        except: pass
+    return False
+
+# --- MODAL GESTIÓN CARGA ---
 @st.dialog("Gestión de Carga")
 def modal_registro(datos=None):
     rol = st.session_state['user_info']['rol']
@@ -433,6 +449,7 @@ def modal_registro(datos=None):
         if st.session_state.get('scan_buffer_modal'): val_txt += "\n" + "\n".join(st.session_state['scan_buffer_modal'])
 
         masters_input = st.text_area("Masters (Uno por línea)", value=val_txt, height=150, disabled=disabled)
+        
         lista_final = [m.strip() for m in re.split(r'[\n, ]+', masters_input) if m.strip()]
         conteo_real = len(lista_final); unicos = len(set(lista_final))
         
@@ -486,8 +503,10 @@ else:
     u_info = st.session_state['user_info']; rol = u_info['rol']
     
     with st.sidebar:
+        st.write("") # Espaciador
         av = AVATARS.get(u_info.get('avatar'), '👤')
-        st.markdown(f"<div class='avatar-float' title='{u_info['username']}'>{av}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='avatar-float' style='position:relative; margin:0 auto; text-align:center;'>{av}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='text-align:center; font-size:12px; color:gray; margin-bottom:20px;'>{u_info['username']}</div>", unsafe_allow_html=True)
         
         opts = ["📅", "📈", "📑", "📝", "⚙️"]
         if rol == 'admin': opts.extend(["👥", "🔑"])
@@ -495,8 +514,8 @@ else:
         mapa = {"📅":"calendar","📈":"analytics","📑":"temu","📝":"pod","⚙️":"settings","👥":"users","🔑":"keys"}
         st.session_state['current_view'] = mapa.get(sel, "calendar")
         
-        st.markdown("<div class='logout-float'></div>", unsafe_allow_html=True)
-        if st.sidebar.button("🚪"): st.session_state['logged_in'] = False; st.rerun()
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🚪 Salir"): st.session_state['logged_in'] = False; st.rerun()
 
     vista = st.session_state['current_view']
     df = cargar_datos()
@@ -571,10 +590,13 @@ else:
                 ext = "xlsx" if fmt=="xlsx" else "xls"
                 for m, d in res.items():
                     with st.expander(f"📦 {m} ({d['info']['paquetes']} paq)"):
-                        st.dataframe(d['main'])
+                        search_q = st.text_input(f"🔍 Buscar", key=f"s_{m}")
                         c1,c2 = st.columns(2)
                         c1.download_button("Manifiesto", to_excel_bytes(d['main'],ext), f"{m}.{ext}")
                         c2.download_button("Costos", to_excel_bytes(d['costos'],ext), f"{m}_Costos.{ext}")
+                        df_disp = d['main']
+                        if search_q: df_disp = df_disp[df_disp.astype(str).apply(lambda x: x.str.contains(search_q, case=False, na=False)).any(axis=1)]
+                        st.dataframe(df_disp, hide_index=True)
 
     # --- POD DIGITAL (RECUPERADO HISTORIAL) ---
     elif vista == "pod":
@@ -586,17 +608,22 @@ else:
                 c3,c4 = st.columns(2); resp = c3.text_input("Responsable"); bult = c4.number_input("Bultos",0)
                 paq_obj = st.number_input("Paquetes Declarados",1)
                 
+                # CÁMARA POD
                 act_cam_pod = st.toggle("Usar Cámara")
                 if act_cam_pod:
                     img_pod = st.camera_input("Scan")
                     if img_pod:
                         res_pod = decode_image(img_pod)
-                        if res_pod and res_pod[0] not in st.session_state['scanned_trackings']:
-                            st.session_state['scanned_trackings'].append(res_pod[0])
-                            st.success(f"Leído: {res_pod[0]}")
+                        if res_pod: 
+                            if res_pod[0] not in st.session_state.get('scanned_trackings',[]):
+                                st.session_state['scanned_trackings'].append(res_pod[0])
+                                st.success(f"Leído: {res_pod[0]}")
+                            else: st.warning("Repetido")
                 
-                curr_scan = "\n".join(st.session_state['scanned_trackings'])
+                # Mostrar acumulado
+                curr_scan = "\n".join(st.session_state.get('scanned_trackings',[]))
                 track_raw = st.text_area("Trackings", value=curr_scan, height=150)
+                
                 firma = st_canvas(fill_color="rgba(255, 165, 0, 0.3)", stroke_width=2, height=150)
                 sub_pod = st.form_submit_button("Generar")
             
@@ -606,7 +633,7 @@ else:
                 ts = [t.strip() for t in track_raw.split('\n') if t.strip()]
                 unique_ts = list(set(ts))
                 if len(ts) != len(unique_ts): st.error(f"Duplicados: {len(ts)-len(unique_ts)}")
-                elif len(ts) != paq_obj: st.error(f"No cuadra: {len(ts)} vs {paq_obj}")
+                elif len(ts) != paq_obj: st.error(f"No cuadra: Leídos {len(ts)} vs {paq_obj}")
                 elif not rut or not ts: st.error("Datos faltantes")
                 else:
                     d_pod = {"cliente":cli,"ruta":rut,"responsable":resp,"bultos":bult,"trackings":ts,"firma_img":firma if firma.image_data is not None else None}
@@ -632,7 +659,7 @@ else:
             if conn:
                 q = "SELECT uuid, pod_code, fecha, cliente, responsable FROM pods ORDER BY fecha DESC LIMIT 50"
                 if search_pod:
-                    q = f"SELECT DISTINCT p.uuid, p.pod_code, p.fecha, p.cliente, p.responsable FROM pods p LEFT JOIN pod_items pi ON p.uuid = pi.pod_uuid WHERE p.pod_code LIKE '%{search_pod}%' OR p.cliente LIKE '%{search_pod}%' OR pi.tracking LIKE '%{search_pod}%' LIMIT 20"
+                    q = f"SELECT DISTINCT p.uuid, p.pod_code, p.fecha, p.cliente, p.responsable, p.paquetes_reales FROM pods p LEFT JOIN pod_items pi ON p.uuid = pi.pod_uuid WHERE p.pod_code LIKE '%{search_pod}%' OR p.cliente LIKE '%{search_pod}%' OR pi.tracking LIKE '%{search_pod}%' LIMIT 20"
                 df_p = pd.read_sql(q, conn)
                 conn.close()
                 st.dataframe(df_p)
@@ -642,8 +669,13 @@ else:
                     if st.button("Regenerar Archivos"):
                         d_hist = recuperar_datos_pod(sel_pod)
                         if d_hist:
-                            pdf_h = generar_pdf_pod(d_hist, sel_pod, from_history=True)
-                            st.download_button("📥 PDF", pdf_h, f"POD_{d_hist['pod_code']}.pdf")
+                            pdf_hist = generar_pdf_pod(d_hist, sel_pod, from_history=True)
+                            df_excel_hist = pd.DataFrame(d_hist['trackings'], columns=["Tracking"])
+                            excel_hist = to_excel_bytes(df_excel_hist, 'xlsx')
+                            c_down1, c_down2 = st.columns(2)
+                            c_down1.download_button("📥 PDF", pdf_hist, f"POD_{d_hist['pod_code']}.pdf")
+                            c_down2.download_button("📊 Excel", excel_hist, f"List_{d_hist['pod_code']}.xlsx")
+            else: st.error("Error de conexión.")
 
     elif vista == "settings":
         st.title("Configuración")
