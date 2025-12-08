@@ -20,7 +20,7 @@ st.set_page_config(
 
 # ---------------------------------------------------------
 # ⚠️ URL BASE (Para el QR)
-APP_BASE_URL = "https://control-logistico-ifjfvph3s8ybga46f5bdfb.streamlit.app/" 
+APP_BASE_URL = "https://control-logistico-ifjfvph3s8ybga46f5bdfb.streamlit.app" 
 # ---------------------------------------------------------
 
 # --- LÓGICA DE DESCARGA VÍA QR (INTERCEPTOR) ---
