@@ -21,7 +21,7 @@ from pyzbar.pyzbar import decode
 st.set_page_config(
     page_title="Nexus Logística", 
     layout="wide", 
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed" # Por defecto cerrada para dar foco al menú principal
 )
 
 # ---------------------------------------------------------
@@ -63,130 +63,41 @@ if "pod_uuid" in query_params:
 # --- ESTADO DE SESIÓN ---
 if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
 if 'user_info' not in st.session_state: st.session_state['user_info'] = None
-if 'current_view' not in st.session_state: st.session_state['current_view'] = "calendar"
+if 'current_view' not in st.session_state: st.session_state['current_view'] = "menu" # Default: Menú Principal
+
 # Variables persistentes
 for key in ['last_pod_pdf', 'last_pod_name', 'last_pod_excel', 'last_pod_excel_name', 'scanned_trackings', 'scan_buffer_modal']:
     if key not in st.session_state: st.session_state[key] = [] if 'scan' in key else None
 
-# --- 2. CSS (MÓVIL BOTÓN FLOTANTE + PC FIJA) ---
-SIDEBAR_WIDTH = "70px"
-
-base_css = """
+# --- 2. CSS LIMPIO Y MODERNO ---
+st.markdown("""
 <style>
-    [data-testid="stSidebarNav"] { display: none !important; }
-    [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stHeader"], footer { visibility: hidden !important; }
+    /* Ocultar elementos nativos innecesarios */
+    [data-testid="stSidebarNav"], [data-testid="stToolbar"], footer { display: none !important; }
+    
     .stApp { background-color: #f8fafc; font-family: 'Segoe UI', sans-serif; }
-</style>
-"""
-
-login_css = """
-<style>
-    section[data-testid="stSidebar"] { display: none !important; }
-    .main .block-container { max-width: 400px; padding-top: 15vh; margin: 0 auto; }
-    div[data-testid="stTextInput"] input { border: 1px solid #e2e8f0; padding: 12px; border-radius: 10px; }
-    div.stButton > button { width: 100%; border-radius: 10px; padding: 12px; font-weight: 600; background: linear-gradient(135deg, #3b82f6, #2563eb); border: none; color: white; }
-</style>
-"""
-
-dashboard_css = f"""
-<style>
-    /* === VISTA PC (Pantalla Grande) === */
-    @media (min-width: 768px) {{
-        [data-testid="collapsedControl"] {{ display: none !important; }}
-        
-        section[data-testid="stSidebar"] {{
-            display: block !important; width: {SIDEBAR_WIDTH} !important; min-width: {SIDEBAR_WIDTH} !important;
-            transform: none !important; visibility: visible !important;
-            position: fixed !important; top: 0; left: 0; bottom: 0; z-index: 99999;
-            background: #ffffff !important; border-right: 1px solid #e2e8f0; box-shadow: 4px 0 15px rgba(0,0,0,0.02);
-        }}
-        section[data-testid="stSidebar"] > div {{
-            height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; padding-top: 0px !important;
-        }}
-        .main .block-container {{ margin-left: {SIDEBAR_WIDTH}; width: calc(100% - {SIDEBAR_WIDTH}); padding: 2rem; }}
-        [data-testid="stSidebar"] div[role="radiogroup"] {{ flex-direction: column; gap: 15px; }}
-    }}
-
-    /* === VISTA MÓVIL (Celulares) === */
-    @media (max-width: 767px) {{
-        /* BOTÓN HAMBURGUESA FLOTANTE ABAJO A LA IZQUIERDA */
-        [data-testid="collapsedControl"] {{
-            display: flex !important;
-            position: fixed !important;
-            top: auto !important;
-            bottom: 20px !important;
-            left: 20px !important;
-            right: auto !important;
-            background-color: #2563eb !important;
-            color: white !important;
-            border-radius: 50% !important;
-            z-index: 9999999 !important;
-            width: 55px !important;
-            height: 55px !important;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3) !important;
-            border: 2px solid white !important;
-        }}
-        
-        /* Icono de la flecha/hamburguesa */
-        [data-testid="collapsedControl"] svg {{
-            width: 30px !important;
-            height: 30px !important;
-        }}
-
-        /* Barra lateral (cuando se abre) */
-        section[data-testid="stSidebar"] {{
-            background-color: white !important;
-            top: 0 !important;
-            height: 100vh !important;
-            z-index: 999999 !important;
-            width: 80px !important;
-            min-width: 80px !important;
-        }}
-        
-        section[data-testid="stSidebar"] > div {{
-            padding-top: 50px !important; 
-            display: flex !important;
-            flex-direction: column !important;
-            align-items: center !important;
-        }}
-        
-        .main .block-container {{ margin-left: 0 !important; width: 100% !important; padding: 1rem; padding-bottom: 80px; }}
-        
-        .avatar-float {{ position: relative !important; margin: 0 auto 20px auto !important; top: 0 !important; }}
-        .logout-float {{ position: relative !important; margin-top: 30px !important; bottom: 0 !important; }}
-        [data-testid="stSidebar"] div[role="radiogroup"] {{ flex-direction: column !important; }}
-    }}
-
-    /* === ESTILOS COMUNES === */
-    [data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {{ display: none !important; }}
-    [data-testid="stSidebar"] div[role="radiogroup"] label {{
-        display: flex; justify-content: center; align-items: center;
-        width: 45px; height: 45px; border-radius: 12px; cursor: pointer;
-        background: transparent; color: #64748b; font-size: 24px; border: none; transition: 0.2s; margin: 0 auto 15px auto;
-    }}
-    [data-testid="stSidebar"] div[role="radiogroup"] label:hover {{ background: #f1f5f9; color: #0f172a; transform: scale(1.1); }}
-    [data-testid="stSidebar"] div[role="radiogroup"] label[data-checked="true"] {{
-        background: #eff6ff; color: #2563eb; box-shadow: 0 2px 8px rgba(37,99,235,0.2);
-    }}
     
-    .avatar-float {{ width: 35px; height: 35px; background: #f1f5f9; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; color: #334155; }}
-    .logout-float {{ margin-top: auto; text-align: center; width: 100%; }}
+    /* Botones del Menú Principal (Estilo Tarjeta) */
+    .menu-btn {
+        width: 100%; height: 120px !important;
+        border: 1px solid #e2e8f0; border-radius: 15px;
+        background-color: white; color: #1e293b;
+        font-size: 18px; font-weight: 600;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05); transition: all 0.2s;
+    }
+    .menu-btn:hover { transform: translateY(-3px); box-shadow: 0 10px 15px rgba(0,0,0,0.1); border-color: #3b82f6; }
     
-    .kpi-card {{ background: white; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 10px; }}
-    .kpi-lbl {{ font-size: 0.75rem; color: #64748b; text-transform: uppercase; font-weight: 700; }}
-    .kpi-val {{ font-size: 1.5rem; color: #0f172a; font-weight: 800; }}
-    .count-ok {{ color: #16a34a; font-weight: bold; background:#dcfce7; padding:2px 6px; border-radius:4px; }}
-    .count-err {{ color: #dc2626; font-weight: bold; background:#fee2e2; padding:2px 6px; border-radius:4px; }}
+    /* Botón Volver */
+    .back-btn { margin-bottom: 20px; }
+    
+    /* KPIs y Alertas */
+    .kpi-card { background: white; padding: 15px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 10px; }
+    .kpi-val { font-size: 1.4rem; font-weight: 800; color: #0f172a; }
+    .count-ok { color: #16a34a; font-weight: bold; background:#dcfce7; padding:2px 6px; border-radius:4px; }
+    .count-err { color: #dc2626; font-weight: bold; background:#fee2e2; padding:2px 6px; border-radius:4px; }
 </style>
-"""
-
-st.markdown(base_css, unsafe_allow_html=True)
-if st.session_state['logged_in']:
-    st.markdown(dashboard_css, unsafe_allow_html=True)
-else:
-    st.markdown(login_css, unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 # --- 3. CONEXIÓN ---
 AVATARS = {"avatar_1": "👨‍💼", "avatar_2": "👩‍💼", "avatar_3": "👷‍♂️", "avatar_4": "👩‍💻"} 
@@ -405,7 +316,7 @@ def cambiar_password(uid, np):
         except: pass
     return False
 
-# --- MODAL GESTIÓN CARGA (CON CÁMARA FUERA DEL FORM) ---
+# --- MODAL GESTIÓN CARGA ---
 @st.dialog("Gestión de Carga")
 def modal_registro(datos=None):
     rol = st.session_state['user_info']['rol']
@@ -423,15 +334,13 @@ def modal_registro(datos=None):
         d_paq = datos.get('paquetes', 0); d_com = datos.get('comentarios', "")
         d_esp = len([x for x in re.split(r'[\n, ]+', d_mast) if x.strip()]) or 1
 
-    st.write("---")
-    st.write("📋 **Escaneo / Ingreso de Masters**")
+    st.write("📋 **Escaneo / Ingreso**")
     
-    # 1. CÁMARA (FUERA DEL FORM)
+    # 1. CÁMARA (Fuera de Form)
     col_cam, col_txt = st.columns([1,2])
-    activar_cam = col_cam.toggle("📷 Usar Cámara")
-    
+    activar_cam = col_cam.toggle("📷 Abrir Cámara")
     if activar_cam:
-        img = st.camera_input("Escanear código")
+        img = st.camera_input("Escanear")
         if img:
             codes = decode_image(img)
             if codes:
@@ -440,35 +349,32 @@ def modal_registro(datos=None):
                     st.session_state['scan_buffer_modal'].append(codes[0])
     
     if st.session_state.get('scan_buffer_modal'):
-        st.info(f"Escaneados: {len(st.session_state['scan_buffer_modal'])}")
+        st.info(f"En memoria: {len(st.session_state['scan_buffer_modal'])}")
         if st.button("Borrar Escaneos"): st.session_state['scan_buffer_modal'] = []; st.rerun()
     
-    # Preparar texto acumulado
     val_txt = d_mast
-    if st.session_state.get('scan_buffer_modal'):
-        val_txt += "\n" + "\n".join(st.session_state['scan_buffer_modal'])
+    if st.session_state.get('scan_buffer_modal'): val_txt += "\n" + "\n".join(st.session_state['scan_buffer_modal'])
 
-    # 2. FORMULARIO PRINCIPAL
     with st.form("frm"):
         c1, c2 = st.columns(2)
         with c1:
-            fin = st.date_input("Fecha Llegada", d_fecha, disabled=disabled)
+            fin = st.date_input("Fecha", d_fecha, disabled=disabled)
             pin = st.selectbox("Proveedor", PROVEEDORES, index=PROVEEDORES.index(d_prov), disabled=disabled)
             clin = st.selectbox("Cliente", PLATAFORMAS, index=PLATAFORMAS.index(d_plat), disabled=disabled)
         with c2:
             sin = st.selectbox("Servicio", SERVICIOS, index=SERVICIOS.index(d_serv) if d_serv in SERVICIOS else 0, disabled=disabled)
-            esperados = st.number_input("Masters Esperadas", min_value=1, value=d_esp, disabled=disabled)
+            esperados = st.number_input("Esperadas", min_value=1, value=d_esp, disabled=disabled)
             pain = st.number_input("Total Paquetes", 0, value=int(d_paq), disabled=disabled)
 
-        masters_input = st.text_area("Masters (Uno por línea)", value=val_txt, height=150, disabled=disabled)
+        masters_input = st.text_area("Masters", value=val_txt, height=150, disabled=disabled)
         
         lista_final = [m.strip() for m in re.split(r'[\n, ]+', masters_input) if m.strip()]
         conteo_real = len(lista_final); unicos = len(set(lista_final))
         
         c_v1, c_v2 = st.columns(2); c_v1.caption(f"Leídos: {conteo_real}")
-        if conteo_real != unicos: st.markdown(f"<div class='count-err'>⚠️ {conteo_real-unicos} Duplicados</div>", unsafe_allow_html=True)
+        if conteo_real != unicos: st.markdown(f"<div class='count-err'>⚠️ {conteo_real-unicos} Dups</div>", unsafe_allow_html=True)
         if esperados > 0:
-            if conteo_real == esperados: c_v2.markdown(f"<div class='count-ok'>✅ Cuadra</div>", unsafe_allow_html=True)
+            if conteo_real == esperados: c_v2.markdown(f"<div class='count-ok'>✅ OK</div>", unsafe_allow_html=True)
             else: c_v2.markdown(f"<div class='count-err'>❌ Dif: {conteo_real-esperados}</div>", unsafe_allow_html=True)
 
         com = st.text_area("Notas", d_com, disabled=disabled)
@@ -492,16 +398,14 @@ def modal_registro(datos=None):
 if not st.session_state['logged_in']:
     st.markdown("<div style='height: 50px'></div>", unsafe_allow_html=True)
     st.markdown("<div class='login-container'><h2 style='color:#1e293b;'>Nexus Logística</h2></div>", unsafe_allow_html=True)
-    
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
         u = st.text_input("Usuario", placeholder="Usuario")
         p = st.text_input("Contraseña", type="password", placeholder="Contraseña")
-        if st.button("ACCEDER"):
+        if st.button("ACCEDER", use_container_width=True, type="primary"):
             user = verificar_login(u, p)
             if user: st.session_state['logged_in'] = True; st.session_state['user_info'] = user; st.rerun()
             else: st.error("Error credenciales")
-        
         st.markdown("<br>", unsafe_allow_html=True)
         with st.expander("Recuperar contraseña"):
             ur = st.text_input("Usuario recuperación")
@@ -514,216 +418,210 @@ if not st.session_state['logged_in']:
 else:
     u_info = st.session_state['user_info']; rol = u_info['rol']
     
+    # --- NAVEGACIÓN UNIVERSAL (SIDEBAR O MENÚ PRINCIPAL) ---
+    
+    # 1. Definir Función de Navegación
+    def ir_a(vista_destino):
+        st.session_state['current_view'] = vista_destino
+        st.rerun()
+
+    # 2. Renderizar Sidebar (Para Logout y User Info)
     with st.sidebar:
         av = AVATARS.get(u_info.get('avatar'), '👤')
-        st.markdown(f"<div class='avatar-float' style='position:relative; margin:0 auto; text-align:center;'>{av}</div>", unsafe_allow_html=True)
-        st.markdown(f"<div style='text-align:center; font-size:12px; color:gray; margin-bottom:20px;'>{u_info['username']}</div>", unsafe_allow_html=True)
-        
-        opts = ["📅", "📈", "📑", "📝", "⚙️"]
-        if rol == 'admin': opts.extend(["👥", "🔑"])
-        sel = st.radio("Menu", opts, label_visibility="collapsed")
-        mapa = {"📅":"calendar","📈":"analytics","📑":"temu","📝":"pod","⚙️":"settings","👥":"users","🔑":"keys"}
-        st.session_state['current_view'] = mapa.get(sel, "calendar")
-        
-        st.markdown("<div class='logout-float'></div>", unsafe_allow_html=True)
-        if st.sidebar.button("🚪"): st.session_state['logged_in'] = False; st.rerun()
+        st.markdown(f"<div style='text-align:center; font-size:40px; margin-bottom:10px;'>{av}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='text-align:center; font-weight:bold; color:#1e293b;'>{u_info['username']}</div>", unsafe_allow_html=True)
+        st.markdown("<hr>", unsafe_allow_html=True)
+        if st.button("🚪 Cerrar Sesión", use_container_width=True): 
+            st.session_state['logged_in'] = False; st.rerun()
 
+    # 3. Control de Vistas
     vista = st.session_state['current_view']
     df = cargar_datos()
 
-    # --- CALENDARIO ---
-    if vista == "calendar":
-        c1, c2 = st.columns([6, 1])
-        c1.title("Operaciones")
-        if rol != 'analista' and c2.button("➕ Nuevo", type="primary"): modal_registro(None)
-        evts = []
-        if not df.empty:
-            for _, r in df.iterrows():
-                col = "#3b82f6"
-                if "AliExpress" in r['plataforma_cliente']: col = "#f97316"
-                elif "Temu" in r['plataforma_cliente']: col = "#10b981"
-                props = {"id": int(r['id']), "fecha_str": str(r['fecha_str']), "proveedor": str(r['proveedor_logistico']), "plataforma": str(r['plataforma_cliente']), "servicio": str(r['tipo_servicio']), "master": str(r['master_lote']), "paquetes": int(r['paquetes']), "comentarios": str(r['comentarios'])}
-                evts.append({"title": f"📦{int(r['paquetes'])} | 🔑{r['conteo_masters_real']}", "start": r['fecha_str'], "backgroundColor": col, "borderColor": col, "extendedProps": props})
-        cal = calendar(events=evts, options={"initialView": "dayGridMonth", "height": "750px"}, key="cal_main")
-        if cal.get("eventClick"): modal_registro(cal["eventClick"]["event"]["extendedProps"])
+    # --- VISTA: MENÚ PRINCIPAL (HOME) ---
+    if vista == "menu":
+        st.title("Panel Principal")
+        st.markdown("Selecciona una herramienta para comenzar:")
+        
+        # Grid de Botones
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("📅\nCalendario", use_container_width=True, key="btn_cal"): ir_a("calendar")
+            if st.button("📑\nGestor TEMU", use_container_width=True, key="btn_temu"): ir_a("temu")
+            if st.button("⚙️\nConfig", use_container_width=True, key="btn_conf"): ir_a("settings")
+        with c2:
+            if st.button("📈\nAnalytics", use_container_width=True, key="btn_ana"): ir_a("analytics")
+            if st.button("📝\nPOD Digital", use_container_width=True, key="btn_pod"): ir_a("pod")
+            if rol == 'admin':
+                if st.button("👥\nUsuarios", use_container_width=True, key="btn_usr"): ir_a("users")
+        
+        if rol == 'admin':
+            if st.button("🔑 Claves", use_container_width=True): ir_a("keys")
 
-    # --- ANALYTICS PRO ---
-    elif vista == "analytics":
-        st.title("Analytics Pro")
-        if df.empty: st.warning("Sin datos")
-        else:
-            with st.container(border=True):
-                c_s, c_d = st.columns([1,2])
-                s_mast = c_s.text_input("🔍 Buscar Master")
-                rango = c_d.date_input("Rango", [df['fecha'].min(), df['fecha'].max()])
-            
-            df_fil = df.copy()
-            if s_mast:
-                conn = get_connection()
-                try: 
-                    q = f"SELECT registro_id FROM masters_detalle WHERE master_code LIKE '%{s_mast}%'"
-                    found = pd.read_sql(q, conn)
-                    conn.close()
-                    if not found.empty: df_fil = df_fil[df_fil['id'].isin(found['registro_id'])]
-                    else: st.error("No encontrado"); df_fil = pd.DataFrame()
-                except: pass
-            elif len(rango)==2: df_fil = df_fil[(df_fil['fecha'].dt.date>=rango[0])&(df_fil['fecha'].dt.date<=rango[1])]
-            
-            if not df_fil.empty:
-                k1,k2,k3,k4 = st.columns(4)
-                k1.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>Paq</div><div class='kpi-val'>{df_fil['paquetes'].sum():,.0f}</div></div>",unsafe_allow_html=True)
-                k2.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>Masters</div><div class='kpi-val'>{df_fil['conteo_masters_real'].sum():,.0f}</div></div>",unsafe_allow_html=True)
-                k3.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>Viajes</div><div class='kpi-val'>{len(df_fil)}</div></div>",unsafe_allow_html=True)
-                k4.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>Promedio</div><div class='kpi-val'>{df_fil['paquetes'].mean():,.0f}</div></div>",unsafe_allow_html=True)
+    # --- ESTRUCTURA PARA VISTAS INTERNAS ---
+    else:
+        # Botón Volver Universal
+        c_back, c_tit = st.columns([1, 4])
+        with c_back:
+            if st.button("⬅️ Menú", type="secondary"): ir_a("menu")
+        
+        # --- CONTENIDO DE LAS HERRAMIENTAS ---
+        
+        if vista == "calendar":
+            with c_tit: st.title("Calendario")
+            c1, c2 = st.columns([6, 1])
+            c1.markdown("Gestión de arribos y cargas.")
+            if rol != 'analista' and c2.button("➕ Nuevo", type="primary"): modal_registro(None)
+            evts = []
+            if not df.empty:
+                for _, r in df.iterrows():
+                    col = "#3b82f6"
+                    if "AliExpress" in r['plataforma_cliente']: col = "#f97316"
+                    elif "Temu" in r['plataforma_cliente']: col = "#10b981"
+                    props = {"id": int(r['id']), "fecha_str": str(r['fecha_str']), "proveedor": str(r['proveedor_logistico']), "plataforma": str(r['plataforma_cliente']), "servicio": str(r['tipo_servicio']), "master": str(r['master_lote']), "paquetes": int(r['paquetes']), "comentarios": str(r['comentarios'])}
+                    evts.append({"title": f"📦{int(r['paquetes'])} | 🔑{r['conteo_masters_real']}", "start": r['fecha_str'], "backgroundColor": col, "borderColor": col, "extendedProps": props})
+            cal = calendar(events=evts, options={"initialView": "dayGridMonth", "height": "650px"}, key="cal_main")
+            if cal.get("eventClick"): modal_registro(cal["eventClick"]["event"]["extendedProps"])
+
+        elif vista == "analytics":
+            with c_tit: st.title("Analytics Pro")
+            if df.empty: st.warning("Sin datos")
+            else:
+                with st.container(border=True):
+                    c_s, c_d = st.columns([1,2])
+                    s_mast = c_s.text_input("🔍 Buscar Master")
+                    rango = c_d.date_input("Rango", [df['fecha'].min(), df['fecha'].max()])
+                df_fil = df.copy()
+                if s_mast:
+                    conn = get_connection()
+                    try: 
+                        q = f"SELECT registro_id FROM masters_detalle WHERE master_code LIKE '%{s_mast}%'"
+                        found = pd.read_sql(q, conn); conn.close()
+                        if not found.empty: df_fil = df_fil[df_fil['id'].isin(found['registro_id'])]
+                        else: st.error("No encontrado"); df_fil = pd.DataFrame()
+                    except: pass
+                elif len(rango)==2: df_fil = df_fil[(df_fil['fecha'].dt.date>=rango[0])&(df_fil['fecha'].dt.date<=rango[1])]
                 
-                t1,t2,t3 = st.tabs(["📅 Resumen", "📊 Gráficos", "📥 Data"])
-                with t1:
-                    st.subheader("Resumen Semanal")
-                    res = df_fil.groupby(['Año','Semana','Mes']).agg(Paquetes=('paquetes','sum'), Masters=('conteo_masters_real','sum'), Viajes=('id','count')).reset_index()
-                    st.dataframe(res, use_container_width=True)
-                with t2:
-                    g1,g2 = st.columns(2)
-                    with g1: st.plotly_chart(px.bar(df_fil.groupby('fecha')['paquetes'].sum().reset_index(), x='fecha', y='paquetes'), use_container_width=True)
-                    with g2: st.plotly_chart(px.pie(df_fil, names='proveedor_logistico', values='paquetes'), use_container_width=True)
-                with t3:
+                if not df_fil.empty:
+                    k1,k2,k3,k4 = st.columns(4)
+                    k1.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>Paq</div><div class='kpi-val'>{df_fil['paquetes'].sum():,.0f}</div></div>",unsafe_allow_html=True)
+                    k2.markdown(f"<div class='kpi-card'><div class='kpi-lbl'>Masters</div><div class='kpi-val'>{df_fil['conteo_masters_real'].sum():,.0f}</div></div>",unsafe_allow_html=True)
                     st.dataframe(df_fil)
-                    st.download_button("Descargar CSV", df_fil.to_csv(index=False).encode('utf-8'), "reporte.csv", "text/csv")
 
-    # --- TEMU MANAGER ---
-    elif vista == "temu":
-        st.title("Gestor TEMU"); f = st.file_uploader("Excel", type=["xlsx","xls"])
-        if f:
-            res, df_sum, err = procesar_archivo_temu(f)
-            if res:
-                st.subheader("Resumen")
-                st.dataframe(df_sum, use_container_width=True)
-                fmt = st.radio("Fmt", ["xlsx", "xls"], horizontal=True)
-                ext = "xlsx" if fmt=="xlsx" else "xls"
-                for m, d in res.items():
-                    with st.expander(f"📦 {m} ({d['info']['paquetes']} paq)"):
-                        search_q = st.text_input(f"🔍 Buscar", key=f"s_{m}")
-                        c1,c2 = st.columns(2)
-                        c1.download_button("Manifiesto", to_excel_bytes(d['main'],ext), f"{m}.{ext}")
-                        c2.download_button("Costos", to_excel_bytes(d['costos'],ext), f"{m}_Costos.{ext}")
-                        df_disp = d['main']
-                        if search_q: df_disp = df_disp[df_disp.astype(str).apply(lambda x: x.str.contains(search_q, case=False, na=False)).any(axis=1)]
-                        st.dataframe(df_disp, hide_index=True)
-
-    # --- POD DIGITAL ---
-    elif vista == "pod":
-        st.title("POD Digital")
-        t1, t2 = st.tabs(["Nueva", "Historial"])
-        with t1:
-            st.write("### Datos de Entrega")
-            
-            # 1. CÁMARA (FUERA DEL FORM)
-            act_cam_pod = st.toggle("📷 Abrir Cámara")
-            if act_cam_pod:
-                img_pod = st.camera_input("Scan")
-                if img_pod:
-                    res_pod = decode_image(img_pod)
-                    if res_pod:
-                        if res_pod[0] not in st.session_state.get('scanned_trackings',[]):
-                            st.session_state['scanned_trackings'].append(res_pod[0])
-                            st.success(f"Leído: {res_pod[0]}")
-                        else: st.warning("Repetido")
-            
-            if st.button("Limpiar Escaneos"): st.session_state['scanned_trackings'] = []; st.rerun()
-            
-            # Preparamos el texto acumulado
-            curr_scan = "\n".join(st.session_state.get('scanned_trackings',[]))
-
-            # 2. FORMULARIO (Recibe el texto del estado)
-            with st.form("pod_form"):
-                c1,c2 = st.columns(2); cli = c1.selectbox("Cliente", ["Mail Americas","APG","IMILE"]); rut = c2.text_input("Ruta")
-                c3,c4 = st.columns(2); resp = c3.text_input("Responsable"); bult = c4.number_input("Bultos",0)
-                paq_obj = st.number_input("Paquetes Declarados",1)
-                
-                track_raw = st.text_area("Trackings", value=curr_scan, height=150)
-                
-                firma = st_canvas(fill_color="rgba(255, 165, 0, 0.3)", stroke_width=2, height=150)
-                sub_pod = st.form_submit_button("Generar")
-            
-            if sub_pod:
-                ts = [t.strip() for t in track_raw.split('\n') if t.strip()]
-                unique_ts = list(set(ts))
-                
-                if len(ts) != len(unique_ts): st.error(f"Duplicados: {len(ts)-len(unique_ts)}")
-                elif len(ts) != paq_obj: st.error(f"No cuadra: Leídos {len(ts)} vs {paq_obj}")
-                elif not rut or not ts: st.error("Datos faltantes")
-                else:
-                    d_pod = {"cliente":cli,"ruta":rut,"responsable":resp,"bultos":bult,"trackings":ts,"firma_img":firma if firma.image_data is not None else None}
-                    uid, err = guardar_pod_digital(cli, rut, resp, paq_obj, bult, ts, firma)
-                    if uid:
-                        st.success("Guardado")
-                        st.session_state['last_pod_pdf'] = generar_pdf_pod(d_pod, uid)
-                        st.session_state['last_pod_name'] = f"POD_{uid[:4]}.pdf"
-                        df_ex = pd.DataFrame(ts, columns=['Tracking'])
-                        st.session_state['last_pod_excel'] = to_excel_bytes(df_ex,'xlsx')
-                        st.session_state['scanned_trackings'] = []
-                        st.rerun()
-            
-            if st.session_state['last_pod_pdf']:
-                c1,c2 = st.columns(2)
-                c1.download_button("Descargar PDF", st.session_state['last_pod_pdf'], st.session_state['last_pod_name'])
-                c2.download_button("Descargar Excel", st.session_state['last_pod_excel'], "Lista.xlsx")
-
-        with t2:
-            st.subheader("Buscador Historial")
-            search_pod = st.text_input("🔍 Buscar (ID, Cliente, Tracking)")
-            conn = get_connection()
-            if conn:
-                q = "SELECT uuid, pod_code, fecha, cliente, responsable FROM pods ORDER BY fecha DESC LIMIT 50"
-                if search_pod:
-                    q = f"SELECT DISTINCT p.uuid, p.pod_code, p.fecha, p.cliente, p.responsable FROM pods p LEFT JOIN pod_items pi ON p.uuid = pi.pod_uuid WHERE p.pod_code LIKE '%{search_pod}%' OR p.cliente LIKE '%{search_pod}%' OR pi.tracking LIKE '%{search_pod}%' LIMIT 20"
-                df_p = pd.read_sql(q, conn)
-                conn.close()
-                st.dataframe(df_p)
-                
-                if not df_p.empty:
-                    pod_options = {row['uuid']: f"{row['pod_code']} - {row['cliente']} ({row['fecha']})" for i, row in df_p.iterrows()}
-                    selected_uuid = st.selectbox("Seleccionar para Reimprimir", list(pod_options.keys()), format_func=lambda x: pod_options[x])
-                    
-                    if st.button("Regenerar Archivos"):
-                        d_hist = recuperar_datos_pod(selected_uuid)
-                        if d_hist:
-                            pdf_hist = generar_pdf_pod(d_hist, selected_uuid, from_history=True)
-                            df_excel_hist = pd.DataFrame(d_hist['trackings'], columns=["Tracking"])
-                            excel_hist = to_excel_bytes(df_excel_hist, 'xlsx')
+        elif vista == "temu":
+            with c_tit: st.title("Gestor TEMU")
+            f = st.file_uploader("Excel", type=["xlsx","xls"])
+            if f:
+                res, df_sum, err = procesar_archivo_temu(f)
+                if res:
+                    st.dataframe(df_sum)
+                    fmt = st.radio("Fmt", ["xlsx", "xls"], horizontal=True)
+                    ext = "xlsx" if fmt=="xlsx" else "xls"
+                    for m, d in res.items():
+                        with st.expander(f"📦 {m}"):
                             c1,c2 = st.columns(2)
-                            c1.download_button("📥 PDF", pdf_hist, f"POD_{d_hist['pod_code']}.pdf")
-                            c2.download_button("📊 Excel", excel_hist, f"List_{d_hist['pod_code']}.xlsx")
-            else: st.error("Error de conexión.")
+                            c1.download_button("Manifiesto", to_excel_bytes(d['main'],ext), f"{m}.{ext}")
+                            c2.download_button("Costos", to_excel_bytes(d['costos'],ext), f"{m}_Costos.{ext}")
 
-    elif vista == "settings":
-        st.title("Configuración")
-        with st.container(border=True):
-            st.subheader("Contraseña")
-            p1 = st.text_input("Nueva", type="password"); p2 = st.text_input("Confirmar", type="password")
-            if st.button("Actualizar"):
-                if p1==p2 and p1: 
-                    if cambiar_password(u_info['id'], p1): st.success("OK")
-                else: st.warning("Error")
+        elif vista == "pod":
+            with c_tit: st.title("POD Digital")
+            t1, t2 = st.tabs(["Nueva", "Historial"])
+            with t1:
+                # 1. CÁMARA (Fuera de Form)
+                col_cam, col_txt = st.columns([1,2])
+                act_cam_pod = col_cam.toggle("📷 Usar Cámara")
+                if act_cam_pod:
+                    img_pod = st.camera_input("Scan")
+                    if img_pod:
+                        res_pod = decode_image(img_pod)
+                        if res_pod: 
+                            if res_pod[0] not in st.session_state.get('scanned_trackings',[]):
+                                st.session_state['scanned_trackings'].append(res_pod[0])
+                                st.success(f"Leído: {res_pod[0]}")
+                            else: st.warning("Repetido")
+                
+                curr_scan = "\n".join(st.session_state.get('scanned_trackings',[]))
+                if st.button("Limpiar Escaneos"): st.session_state['scanned_trackings'] = []; st.rerun()
 
-    elif vista == "users":
-        st.title("Admin Usuarios"); t1,t2=st.tabs(["Crear","Lista"])
-        with t1: 
-            with st.form("nu"): 
-                u=st.text_input("User"); r=st.selectbox("Rol",["user","analista","admin"])
-                if st.form_submit_button("Crear"): admin_crear_usuario(u,r)
-        with t2:
-            df_u = admin_get_users(); st.dataframe(df_u)
-            if not df_u.empty:
-                uid = st.selectbox("Usuario", df_u['id'].tolist())
-                if uid:
+                # 2. FORMULARIO
+                with st.form("pod_form"):
+                    c1,c2 = st.columns(2); cli = c1.selectbox("Cliente", ["Mail Americas","APG","IMILE"]); rut = c2.text_input("Ruta")
+                    c3,c4 = st.columns(2); resp = c3.text_input("Responsable"); bult = c4.number_input("Bultos",0)
+                    paq_obj = st.number_input("Paquetes Declarados",1)
+                    
+                    track_raw = st.text_area("Trackings", value=curr_scan, height=150)
+                    firma = st_canvas(fill_color="rgba(255, 165, 0, 0.3)", stroke_width=2, height=150)
+                    sub_pod = st.form_submit_button("Generar")
+                
+                if sub_pod:
+                    ts = [t.strip() for t in track_raw.split('\n') if t.strip()]
+                    unique_ts = list(set(ts))
+                    if len(ts) != len(unique_ts): st.error(f"Duplicados: {len(ts)-len(unique_ts)}")
+                    elif len(ts) != paq_obj: st.error(f"No cuadra: Leídos {len(ts)} vs {paq_obj}")
+                    elif not rut or not ts: st.error("Datos faltantes")
+                    else:
+                        d_pod = {"cliente":cli,"ruta":rut,"responsable":resp,"bultos":bult,"trackings":ts,"firma_img":firma if firma.image_data is not None else None}
+                        uid, err = guardar_pod_digital(cli, rut, resp, paq_obj, bult, ts, firma)
+                        if uid:
+                            st.success("Guardado")
+                            st.session_state['last_pod_pdf'] = generar_pdf_pod(d_pod, uid)
+                            st.session_state['last_pod_name'] = f"POD_{uid[:4]}.pdf"
+                            df_ex = pd.DataFrame(ts, columns=['Tracking'])
+                            st.session_state['last_pod_excel'] = to_excel_bytes(df_ex,'xlsx')
+                            st.session_state['scanned_trackings'] = []
+                            st.rerun()
+                
+                if st.session_state['last_pod_pdf']:
                     c1,c2 = st.columns(2)
-                    rol_new = c1.selectbox("Nuevo Rol", ["user","analista","admin"])
-                    if c1.button("Cambiar Rol"): admin_update_role(uid, rol_new); st.rerun()
-                    if c2.button("Activar/Desactivar"): admin_toggle(uid, df_u[df_u['id']==uid]['activo'].values[0]); st.rerun()
+                    c1.download_button("Descargar PDF", st.session_state['last_pod_pdf'], st.session_state['last_pod_name'])
+                    c2.download_button("Descargar Excel", st.session_state['last_pod_excel'], "Lista.xlsx")
 
-    elif vista == "keys":
-        st.title("Claves Pendientes")
-        conn=get_connection(); req=pd.read_sql("SELECT * FROM password_requests WHERE status='pendiente'", conn); conn.close()
-        for _,r in req.iterrows():
-            st.write(f"User: {r['username']}")
-            if st.button(f"Reset {r['username']}", key=r['id']): admin_restablecer_password(r['id'], r['username']); st.rerun()
+            with t2:
+                st.subheader("Buscador Historial")
+                search_pod = st.text_input("🔍 Buscar (ID, Cliente, Tracking)")
+                conn = get_connection()
+                if conn:
+                    q = "SELECT uuid, pod_code, fecha, cliente, responsable FROM pods ORDER BY fecha DESC LIMIT 50"
+                    if search_pod:
+                        q = f"SELECT DISTINCT p.uuid, p.pod_code, p.fecha, p.cliente, p.responsable FROM pods p LEFT JOIN pod_items pi ON p.uuid = pi.pod_uuid WHERE p.pod_code LIKE '%{search_pod}%' OR p.cliente LIKE '%{search_pod}%' OR pi.tracking LIKE '%{search_pod}%' LIMIT 20"
+                    df_p = pd.read_sql(q, conn); conn.close()
+                    st.dataframe(df_p)
+                    if not df_p.empty:
+                        sel_pod = st.selectbox("Seleccionar", df_p['uuid'].tolist(), format_func=lambda x: f"ID: {x}")
+                        if st.button("Regenerar"):
+                            d_h = recuperar_datos_pod(sel_pod)
+                            if d_h:
+                                pdf_h = generar_pdf_pod(d_h, sel_pod, True)
+                                st.download_button("PDF", pdf_h, f"POD_{d_h['pod_code']}.pdf")
+
+        elif vista == "settings":
+            with c_tit: st.title("Configuración")
+            with st.container(border=True):
+                p1 = st.text_input("Nueva Clave", type="password"); p2 = st.text_input("Confirmar", type="password")
+                if st.button("Actualizar"):
+                    if p1==p2 and p1: 
+                        if cambiar_password(u_info['id'], p1): st.success("OK")
+                    else: st.warning("Error")
+
+        elif vista == "users":
+            with c_tit: st.title("Admin Usuarios")
+            t1,t2=st.tabs(["Crear","Lista"])
+            with t1: 
+                with st.form("nu"): 
+                    u=st.text_input("User"); r=st.selectbox("Rol",["user","analista","admin"])
+                    if st.form_submit_button("Crear"): admin_crear_usuario(u,r)
+            with t2:
+                df_u = admin_get_users(); st.dataframe(df_u)
+                if not df_u.empty:
+                    uid = st.selectbox("Usuario", df_u['id'].tolist())
+                    if uid:
+                        c1,c2 = st.columns(2)
+                        rol_new = c1.selectbox("Nuevo Rol", ["user","analista","admin"])
+                        if c1.button("Cambiar Rol"): admin_update_role(uid, rol_new); st.rerun()
+                        if c2.button("Activar/Desactivar"): admin_toggle(uid, df_u[df_u['id']==uid]['activo'].values[0]); st.rerun()
+
+        elif vista == "keys":
+            with c_tit: st.title("Claves Pendientes")
+            conn=get_connection(); req=pd.read_sql("SELECT * FROM password_requests WHERE status='pendiente'", conn); conn.close()
+            for _,r in req.iterrows():
+                if st.button(f"Reset {r['username']}", key=r['id']): admin_restablecer_password(r['id'], r['username']); st.rerun()
