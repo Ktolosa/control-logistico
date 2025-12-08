@@ -30,7 +30,7 @@ THEMES = {
 }
 THEME_NAMES = list(THEMES.keys())
 
-# --- CONEXIÓN BD (Con SSL para TiDB) ---
+# --- CONEXIÓN BD (SSL Robust) ---
 def get_connection():
     try:
         config = {
@@ -45,7 +45,7 @@ def get_connection():
         return mysql.connector.connect(**config)
     except mysql.connector.Error as err:
         try:
-            # Fallback para local (Windows/Mac) donde la ruta SSL puede fallar
+            # Fallback para entorno local
             if err.errno == 2026:
                 config.pop("ssl_ca")
                 config["ssl_verify_identity"] = False
@@ -115,7 +115,7 @@ def enviar_email_con_adjuntos(destinatario, asunto, cuerpo, archivos_adjuntos):
     except Exception as e:
         return False, str(e)
 
-# --- TRACKING PRO: FUNCIONES BD ROBUSTAS ---
+# --- TRACKING PRO: FUNCIONES BD ---
 def init_tracking_db():
     conn = get_connection()
     if conn:
@@ -150,7 +150,6 @@ def buscar_trackings_masivo(lista_trackings):
     if not conn: return pd.DataFrame()
     try:
         import pandas as pd
-        # Construcción manual de query para evitar problemas con SQLAlchemy
         format_strings = ','.join(['%s'] * len(lista_trackings))
         query = f"SELECT tracking, invoice FROM tracking_db WHERE tracking IN ({format_strings})"
         
@@ -162,11 +161,24 @@ def buscar_trackings_masivo(lista_trackings):
     except: return pd.DataFrame()
 
 def obtener_resumen_bases():
+    """
+    CORRECCIÓN: Se actualizó el ORDER BY para que use el alias 'fecha_creacion'
+    o la función de agregación MAX(created_at). Esto soluciona el error en MySQL 8/TiDB
+    cuando 'ONLY_FULL_GROUP_BY' está activado.
+    """
     conn = get_connection()
     if not conn: return pd.DataFrame()
     try:
         import pandas as pd
-        query = "SELECT invoice, COUNT(*) as cantidad, MAX(created_at) as fecha_creacion FROM tracking_db GROUP BY invoice ORDER BY created_at DESC"
+        query = """
+            SELECT 
+                invoice, 
+                COUNT(*) as cantidad, 
+                MAX(created_at) as fecha_creacion 
+            FROM tracking_db 
+            GROUP BY invoice 
+            ORDER BY fecha_creacion DESC
+        """
         
         cur = conn.cursor(dictionary=True)
         cur.execute(query)
@@ -174,7 +186,8 @@ def obtener_resumen_bases():
         conn.close()
         return pd.DataFrame(data)
     except Exception as e:
-        print(f"Error resumen: {e}") 
+        # Esto te ayudará a ver errores en los logs si algo falla
+        print(f"Error SQL Resumen: {e}") 
         return pd.DataFrame()
 
 def eliminar_base_invoice(invoice):
