@@ -6,3 +6,7 @@ streamlit-calendar>=0.5.0
 openpyxl
 xlsxwriter
 xlwt
+streamlit-drawable-canvas
+fpdf
+qrcode
+
