@@ -406,9 +406,7 @@ def solicitar_reset_pass(username):
         
         if user_exists:
             cur.execute("SELECT id FROM password_requests WHERE username=%s AND status='pendiente'", (username,))
-            is_pending = cur.fetchone()
-            
-            if not is_pending:
+            if not cur.fetchone():
                 cur.execute("INSERT INTO password_requests (username) VALUES (%s)", (username,))
                 conn.commit()
                 conn.close()
@@ -641,7 +639,7 @@ else:
                             if search_q: df_disp = df_disp[df_disp.astype(str).apply(lambda x: x.str.contains(search_q, case=False, na=False)).any(axis=1)]
                             st.dataframe(df_disp, hide_index=True)
 
-    # --- NUEVA VISTA: POD DIGITAL ---
+    # --- NUEVA VISTA: POD DIGITAL (CORREGIDO) ---
     elif vista == "pod_digital":
         st.title("📝 POD Digital")
         st.markdown("Generación de Manifiestos de Entrega y Firma Digital.")
@@ -649,6 +647,7 @@ else:
         tab_new, tab_hist = st.tabs(["Nueva POD", "Historial"])
         
         with tab_new:
+            # DEFINICIÓN DEL FORMULARIO
             with st.form("form_pod"):
                 st.subheader("1. Cliente y Ruta")
                 c1, c2 = st.columns(2)
@@ -675,33 +674,45 @@ else:
                     key="canvas_firma"
                 )
                 
-                if st.form_submit_button("💾 GUARDAR Y GENERAR POD", type="primary"):
-                    trackings_list = [t.strip() for t in trackings_raw.split('\n') if t.strip()]
+                # BOTÓN DE ENVÍO
+                submitted = st.form_submit_button("💾 GUARDAR Y GENERAR POD", type="primary")
+
+            # LÓGICA FUERA DEL FORMULARIO
+            if submitted:
+                trackings_list = [t.strip() for t in trackings_raw.split('\n') if t.strip()]
+                
+                if not responsable or not ruta:
+                    st.error("Faltan datos obligatorios (Responsable o Ruta).")
+                elif len(trackings_list) == 0:
+                    st.error("No hay trackings escaneados.")
+                else:
+                    data_pod = {
+                        "cliente": cliente, "ruta": ruta, "responsable": responsable,
+                        "bultos": bultos, "trackings": trackings_list,
+                        "firma_img": firma_canvas if firma_canvas.image_data is not None else None
+                    }
                     
-                    if not responsable or not ruta:
-                        st.error("Faltan datos obligatorios (Responsable o Ruta).")
-                    elif len(trackings_list) == 0:
-                        st.error("No hay trackings escaneados.")
+                    uuid_pod, error = guardar_pod_digital(cliente, ruta, responsable, paq_dec, bultos, trackings_list, firma_canvas)
+                    
+                    if uuid_pod:
+                        st.success("✅ POD Guardada con éxito.")
+                        pdf_bytes = generar_pdf_pod(data_pod, uuid_pod)
+                        
+                        # GUARDAR EN SESSION STATE PARA PERSISTENCIA Y DESCARGA
+                        st.session_state['last_pod_pdf'] = pdf_bytes
+                        st.session_state['last_pod_name'] = f"POD_{cliente}_{date.today()}.pdf"
                     else:
-                        data_pod = {
-                            "cliente": cliente, "ruta": ruta, "responsable": responsable,
-                            "bultos": bultos, "trackings": trackings_list,
-                            "firma_img": firma_canvas if firma_canvas.image_data is not None else None
-                        }
-                        
-                        uuid_pod, error = guardar_pod_digital(cliente, ruta, responsable, paq_dec, bultos, trackings_list, firma_canvas)
-                        
-                        if uuid_pod:
-                            st.success("✅ POD Guardada con éxito.")
-                            pdf_bytes = generar_pdf_pod(data_pod, uuid_pod)
-                            st.download_button(
-                                label="📥 DESCARGAR PDF CON QR",
-                                data=pdf_bytes,
-                                file_name=f"POD_{cliente}_{date.today()}.pdf",
-                                mime="application/pdf"
-                            )
-                        else:
-                            st.error(f"Error al guardar: {error}")
+                        st.error(f"Error al guardar: {error}")
+
+            # MOSTRAR BOTÓN DE DESCARGA SI EXISTE EL ARCHIVO GENERADO
+            if 'last_pod_pdf' in st.session_state:
+                st.download_button(
+                    label="📥 DESCARGAR PDF CON QR",
+                    data=st.session_state['last_pod_pdf'],
+                    file_name=st.session_state['last_pod_name'],
+                    mime="application/pdf",
+                    type="primary"
+                )
 
         with tab_hist:
             st.subheader("Historial de PODs Generadas")
