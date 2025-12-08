@@ -2,16 +2,14 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from utils import get_connection
+import re
 
 def show(user_info):
     st.title("Analytics Pro")
-    
     conn = get_connection()
     if not conn: st.error("Error BD"); return
     
-    # Cargar datos base
     df = pd.read_sql("SELECT * FROM registro_logistica ORDER BY fecha DESC", conn)
-    
     if df.empty: st.warning("Sin datos"); conn.close(); return
     
     df['fecha'] = pd.to_datetime(df['fecha'])
@@ -19,15 +17,12 @@ def show(user_info):
     df['Semana'] = df['fecha'].dt.isocalendar().week
     df['Mes'] = df['fecha'].dt.month_name()
     
-    # Filtros
     with st.container(border=True):
         c_s, c_d = st.columns([1,2])
         s_mast = c_s.text_input("🔍 Buscar Master")
         rango = c_d.date_input("Rango", [df['fecha'].min(), df['fecha'].max()])
     
     df_fil = df.copy()
-    
-    # Lógica de búsqueda Master
     if s_mast:
         q = f"SELECT registro_id FROM masters_detalle WHERE master_code LIKE '%{s_mast}%'"
         found = pd.read_sql(q, conn)
@@ -39,8 +34,6 @@ def show(user_info):
     conn.close()
     
     if not df_fil.empty:
-        # Calcular conteo real de masters
-        import re
         def contar(t): return len([p for p in re.split(r'[\n, ]+', str(t)) if p.strip()]) if t else 0
         df_fil['conteo_masters_real'] = df_fil['master_lote'].apply(contar)
 
