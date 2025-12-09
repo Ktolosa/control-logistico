@@ -6,7 +6,7 @@ import pandas as pd
 import io
 from PIL import Image
 
-# 1. CONFIGURACIÓN
+# 1. CONFIGURACIÓN (Debe ser lo primero)
 st.set_page_config(page_title="Nexus Logística", layout="wide", initial_sidebar_state="collapsed")
 
 # 2. ESTADO
@@ -40,80 +40,63 @@ if "pod_uuid" in qp:
     if st.button("Ir al Inicio"): st.query_params.clear(); st.rerun()
     st.stop()
 
-# 4. LOGIN (DISEÑO MEJORADO & TRANSICIÓN FULL SCREEN)
+# 4. LOGIN (CORREGIDO PARA EVITAR PANTALLA BLANCA)
 if not st.session_state['logged_in']:
-    # Placeholder que contiene TODO el login para poder borrarlo después
-    login_holder = st.empty()
+    st.markdown("<div style='height: 50px'></div>", unsafe_allow_html=True)
     
-    with login_holder.container():
-        st.markdown("<div style='height: 50px'></div>", unsafe_allow_html=True)
-        # Diseño clásico [1, 2, 1] que te gustaba, más ancho
-        c1, c2, c3 = st.columns([1, 2, 1])
-        
-        with c2:
-            # Contenedor "Glass" para el formulario
-            with st.container(border=True):
-                st.markdown("<h2 style='text-align:center; margin-bottom: 20px;'>Nexus Logística</h2>", unsafe_allow_html=True)
-                
-                u = st.text_input("Usuario", placeholder="Escribe tu usuario")
-                p = st.text_input("Contraseña", type="password", placeholder="••••••••")
-                
-                st.write("") # Espacio
-                
-                if st.button("Ingresar al Sistema", use_container_width=True, type="primary"):
-                    usr = utils.verificar_login(u, p)
-                    if usr:
-                        # --- TRANSICIÓN A PANTALLA COMPLETA ---
-                        # 1. Borramos el formulario de login inmediatamente
-                        login_holder.empty()
-                        
-                        # 2. Mostramos la animación en la pantalla limpia
-                        with st.container():
-                            st.markdown("<br><br><br><br>", unsafe_allow_html=True)
-                            # Mensaje grande centrado
-                            st.markdown(f"""
-                            <div style='text-align:center; animation: fadeInUp 0.8s;'>
-                                <h1>🚀 Bienvenido, {usr['username']}</h1>
-                                <p style='color:grey;'>Iniciando módulos de logística...</p>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            
-                            # Barra de progreso centrada (usando columnas para que no sea tan ancha)
-                            cb1, cb2, cb3 = st.columns([1, 2, 1])
-                            with cb2:
-                                my_bar = st.progress(0)
-                                for percent in range(100):
-                                    time.sleep(0.01) # Velocidad de carga
-                                    my_bar.progress(percent + 1)
-                            
-                            time.sleep(0.3) # Pequeña pausa al final
-                            
-                            # 3. Guardamos sesión y recargamos
-                            st.session_state['logged_in'] = True
-                            st.session_state['user_info'] = usr
-                            st.session_state['user_theme'] = usr.get('tema', 'light')
-                            st.rerun()
-                    else:
-                        st.error("Credenciales incorrectas")
+    # Columnas centradas
+    c1, c2, c3 = st.columns([1, 2, 1])
+    
+    with c2:
+        # Contenedor Glass
+        with st.container(border=True):
+            st.markdown("<h2 style='text-align:center; margin-bottom: 20px; animation: fadeInUp 0.5s;'>Nexus Logística</h2>", unsafe_allow_html=True)
+            
+            u = st.text_input("Usuario", placeholder="Escribe tu usuario")
+            p = st.text_input("Contraseña", type="password", placeholder="••••••••")
+            
+            st.write("") 
+            
+            if st.button("Ingresar al Sistema", use_container_width=True, type="primary"):
+                usr = utils.verificar_login(u, p)
+                if usr:
+                    # --- TRANSICIÓN SEGURA ---
+                    # 1. Guardamos sesión primero
+                    st.session_state['logged_in'] = True
+                    st.session_state['user_info'] = usr
+                    st.session_state['user_theme'] = usr.get('tema', 'light')
+                    
+                    # 2. Feedback visual elegante (Toast + Spinner)
+                    st.toast(f"🚀 ¡Bienvenido, {usr['username']}!", icon="👋")
+                    
+                    # Barra de progreso simulada dentro del botón para dar sensación de carga
+                    with st.spinner("Iniciando módulos..."):
+                        time.sleep(1.2) # Breve pausa para que se vea la animación
+                    
+                    # 3. Recarga segura
+                    st.rerun()
+                else:
+                    st.error("Credenciales incorrectas")
+                    st.toast("⚠️ Error de acceso", icon="❌")
 
-            # Link de recuperación fuera de la tarjeta principal
-            with st.expander("¿Olvidaste tu contraseña?", expanded=False):
-                ur = st.text_input("Usuario a recuperar")
-                if st.button("Solicitar Reset"):
-                    conn = utils.get_connection()
-                    if conn:
-                        try:
-                            conn.cursor().execute("INSERT INTO password_requests (username) VALUES (%s)", (ur,)); conn.commit()
-                            st.success("Solicitud enviada.")
-                        except: st.warning("Ya pendiente.")
-                        conn.close()
+        # Recuperación
+        with st.expander("¿Olvidaste tu contraseña?", expanded=False):
+            ur = st.text_input("Usuario a recuperar")
+            if st.button("Solicitar Reset"):
+                conn = utils.get_connection()
+                if conn:
+                    try:
+                        conn.cursor().execute("INSERT INTO password_requests (username) VALUES (%s)", (ur,)); conn.commit()
+                        st.success("Solicitud enviada.")
+                    except: st.warning("Ya pendiente.")
+                    conn.close()
     st.stop()
 
 # 5. DASHBOARD PRINCIPAL
 u_info = st.session_state['user_info']
 rol = u_info['rol']
 
-# Sidebar solo para cerrar sesión (Minimalista)
+# Sidebar Minimalista
 with st.sidebar:
     st.write("")
     if st.button("🔴 Cerrar Sesión", use_container_width=True):
@@ -143,37 +126,30 @@ if 'current_view' not in st.session_state: st.session_state['current_view'] = "m
 
 if st.session_state['current_view'] == "menu":
     
-    # --- ENCABEZADO RESTAURADO (PERFIL EN PAGINA DE INICIO) ---
+    # --- ENCABEZADO PERFIL ---
     with st.container():
-        # Columnas: Foto | Info | Espacio
         c_pic, c_txt, c_ext = st.columns([0.8, 4, 1])
-        
         with c_pic:
             if u_info.get('avatar') and isinstance(u_info['avatar'], bytes):
-                try: 
-                    # Mostramos la imagen redonda
-                    st.image(Image.open(io.BytesIO(u_info['avatar'])), width=85)
+                try: st.image(Image.open(io.BytesIO(u_info['avatar'])), width=85)
                 except: st.header("👤")
-            else:
-                st.header("👤")
+            else: st.header("👤")
         
         with c_txt:
-            # Texto alineado verticalmente
             st.markdown(f"""
-            <div style='padding-top: 10px;'>
+            <div style='padding-top: 10px; animation: fadeInUp 0.5s;'>
                 <h2 style='margin:0; padding:0;'>Hola, {u_info['username']}</h2>
                 <p style='margin:0; padding:0; opacity: 0.7;'>Rol: {rol.capitalize()} | Panel de Control</p>
             </div>
             """, unsafe_allow_html=True)
             
     st.divider()
-    # -----------------------------------------------------------
 
     # Grid de Herramientas
     pending = count_pending() if rol == 'admin' else 0
     valid_keys = [k for k,v in MENU.items() if "all" in v['roles'] or rol in v['roles']]
     
-    cols = st.columns(2) # 2 Columnas como te gustaba antes
+    cols = st.columns(2)
     for i, k in enumerate(valid_keys):
         with cols[i % 2]:
             label = f"{MENU[k]['icon']}\n{MENU[k]['title']}"
@@ -193,7 +169,6 @@ else:
     k = st.session_state['current_view']
     if k in MENU:
         with st.container():
-            # Pequeña animación de entrada para el módulo
             st.markdown("<div style='animation: fadeInUp 0.4s ease-out;'>", unsafe_allow_html=True)
             try: MENU[k]['mod'].show(u_info)
             except Exception as e: st.error(f"Error módulo: {e}")
