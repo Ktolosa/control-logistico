@@ -24,10 +24,7 @@ THEMES = {
     "green": {"name": "Naturaleza", "bg": "#f0fdf4", "text": "#14532d", "card": "#ffffff", "btn_pri": "#16a34a", "btn_txt": "#ffffff", "nav_bg": "#dcfce7", "nav_text": "#14532d", "ok_bg": "#dcfce7", "ok_txt": "#15803d", "err_bg": "#fee2e2", "err_txt": "#b91c1c", "shadow": "rgba(22,163,74,0.1)"},
     "orange": {"name": "Cálido", "bg": "#fff7ed", "text": "#7c2d12", "card": "#ffffff", "btn_pri": "#ea580c", "btn_txt": "#ffffff", "nav_bg": "#ffedd5", "nav_text": "#9a3412", "ok_bg": "#f0fdf4", "ok_txt": "#15803d", "err_bg": "#fef2f2", "err_txt": "#b91c1c", "shadow": "rgba(234,88,12,0.1)"},
 }
-
-# --- ESTA ES LA LÍNEA QUE FALTABA ---
 THEME_NAMES = list(THEMES.keys()) 
-# ------------------------------------
 
 # --- DB & AUTH ---
 def get_connection():
@@ -85,17 +82,58 @@ def guardar_base_tracking(invoice, lista_trackings):
     try: cur = conn.cursor(); vals = [(invoice, t) for t in lista_trackings]; cur.executemany("INSERT INTO tracking_db (invoice, tracking) VALUES (%s, %s)", vals); conn.commit(); conn.close(); return True, f"{len(vals)} guardados"
     except Exception as e: return False, str(e)
 
+# MEJORA: Procesamiento por lotes para evitar desconexiones (Error 2013)
 def buscar_trackings_masivo(lista_trackings):
-    conn = get_connection(); 
+    conn = get_connection()
     if not conn: return pd.DataFrame()
-    try: import pandas as pd; format_strings = ','.join(['%s'] * len(lista_trackings)); query = f"SELECT tracking, invoice FROM tracking_db WHERE tracking IN ({format_strings})"; cur = conn.cursor(dictionary=True); cur.execute(query, tuple(lista_trackings)); data = cur.fetchall(); conn.close(); return pd.DataFrame(data)
-    except: return pd.DataFrame()
+    
+    todos_los_datos = []
+    BATCH_SIZE = 1000 # Procesar de 1000 en 1000
+    
+    try:
+        import pandas as pd
+        cur = conn.cursor(dictionary=True)
+        
+        # Iteramos sobre la lista en trozos (chunks)
+        for i in range(0, len(lista_trackings), BATCH_SIZE):
+            lote = lista_trackings[i : i + BATCH_SIZE]
+            if not lote: continue
+            
+            format_strings = ','.join(['%s'] * len(lote))
+            query = f"SELECT tracking, invoice FROM tracking_db WHERE tracking IN ({format_strings})"
+            
+            cur.execute(query, tuple(lote))
+            todos_los_datos.extend(cur.fetchall())
+            
+        conn.close()
+        return pd.DataFrame(todos_los_datos)
+    except: 
+        if conn: conn.close()
+        return pd.DataFrame(todos_los_datos) if todos_los_datos else pd.DataFrame()
 
 def obtener_resumen_bases():
-    conn = get_connection(); 
+    conn = get_connection()
     if not conn: return pd.DataFrame()
-    try: import pandas as pd; query = "SELECT invoice, COUNT(*) as cantidad, MAX(created_at) as fecha_creacion FROM tracking_db GROUP BY invoice ORDER BY fecha_creacion DESC"; cur = conn.cursor(dictionary=True); cur.execute(query); data = cur.fetchall(); conn.close(); return pd.DataFrame(data)
-    except: return pd.DataFrame()
+    try:
+        import pandas as pd
+        # SQL Optimizado para TiDB
+        query = """
+            SELECT 
+                invoice, 
+                COUNT(*) as cantidad, 
+                MAX(created_at) as fecha_creacion 
+            FROM tracking_db 
+            GROUP BY invoice 
+            ORDER BY fecha_creacion DESC
+        """
+        cur = conn.cursor(dictionary=True)
+        cur.execute(query)
+        data = cur.fetchall()
+        conn.close()
+        return pd.DataFrame(data)
+    except Exception as e:
+        print(f"Error SQL: {e}") 
+        return pd.DataFrame()
 
 def eliminar_base_invoice(invoice):
     conn = get_connection(); 
