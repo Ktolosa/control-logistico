@@ -15,7 +15,7 @@ PROVEEDORES = ["Mail Americas", "APG", "IMILE", "GLC"]
 PLATAFORMAS = ["AliExpress", "Shein", "Temu"]
 SERVICIOS = ["Aduana Propia", "Solo Ultima Milla"]
 
-# --- TEMAS (COLORES Y ESTILOS) ---
+# --- TEMAS VISUALES ---
 THEMES = {
     "light": {"name": "Claro", "bg": "#f8fafc", "text": "#1e293b", "card": "#ffffff", "btn_pri": "#2563eb", "btn_txt": "#ffffff", "nav_bg": "#ffffff", "nav_text": "#1e293b", "ok_bg": "#dcfce7", "ok_txt": "#16a34a", "err_bg": "#fee2e2", "err_txt": "#dc2626", "shadow": "rgba(0,0,0,0.05)"},
     "dark": {"name": "Oscuro", "bg": "#0f172a", "text": "#f1f5f9", "card": "#1e293b", "btn_pri": "#3b82f6", "btn_txt": "#ffffff", "nav_bg": "#1e293b", "nav_text": "#f1f5f9", "ok_bg": "#064e3b", "ok_txt": "#6ee7b7", "err_bg": "#7f1d1d", "err_txt": "#fca5a5", "shadow": "rgba(0,0,0,0.3)"},
@@ -24,9 +24,9 @@ THEMES = {
     "green": {"name": "Naturaleza", "bg": "#f0fdf4", "text": "#14532d", "card": "#ffffff", "btn_pri": "#16a34a", "btn_txt": "#ffffff", "nav_bg": "#dcfce7", "nav_text": "#14532d", "ok_bg": "#dcfce7", "ok_txt": "#15803d", "err_bg": "#fee2e2", "err_txt": "#b91c1c", "shadow": "rgba(22,163,74,0.1)"},
     "orange": {"name": "Cálido", "bg": "#fff7ed", "text": "#7c2d12", "card": "#ffffff", "btn_pri": "#ea580c", "btn_txt": "#ffffff", "nav_bg": "#ffedd5", "nav_text": "#9a3412", "ok_bg": "#f0fdf4", "ok_txt": "#15803d", "err_bg": "#fef2f2", "err_txt": "#b91c1c", "shadow": "rgba(234,88,12,0.1)"},
 }
-THEME_NAMES = list(THEMES.keys()) 
+THEME_NAMES = list(THEMES.keys())
 
-# --- DB & AUTH ---
+# --- CONEXIÓN BD ---
 def get_connection():
     try:
         config = { "host": st.secrets["mysql"]["host"], "user": st.secrets["mysql"]["user"], "password": st.secrets["mysql"]["password"], "database": st.secrets["mysql"]["database"], "ssl_verify_identity": True, "ssl_ca": "/etc/ssl/certs/ca-certificates.crt", "connection_timeout": 10 }
@@ -38,6 +38,7 @@ def get_connection():
         return None
     except: return None
 
+# --- AUTH ---
 def verificar_login(u, p):
     conn = get_connection()
     if not conn: return None
@@ -69,7 +70,7 @@ def enviar_email_con_adjuntos(destinatario, asunto, cuerpo, archivos_adjuntos):
         server = smtplib.SMTP(smtp_server, smtp_port); server.starttls(); server.login(sender_email, sender_password); server.sendmail(sender_email, destinatario, msg.as_string()); server.quit(); return True, "Enviado"
     except Exception as e: return False, str(e)
 
-# --- TRACKING PRO DB ---
+# --- TRACKING PRO: FUNCIONES BD ---
 def init_tracking_db():
     conn = get_connection()
     if conn:
@@ -82,29 +83,21 @@ def guardar_base_tracking(invoice, lista_trackings):
     try: cur = conn.cursor(); vals = [(invoice, t) for t in lista_trackings]; cur.executemany("INSERT INTO tracking_db (invoice, tracking) VALUES (%s, %s)", vals); conn.commit(); conn.close(); return True, f"{len(vals)} guardados"
     except Exception as e: return False, str(e)
 
-# MEJORA: Procesamiento por lotes para evitar desconexiones (Error 2013)
 def buscar_trackings_masivo(lista_trackings):
     conn = get_connection()
     if not conn: return pd.DataFrame()
-    
     todos_los_datos = []
-    BATCH_SIZE = 1000 # Procesar de 1000 en 1000
-    
+    BATCH_SIZE = 1000 
     try:
         import pandas as pd
         cur = conn.cursor(dictionary=True)
-        
-        # Iteramos sobre la lista en trozos (chunks)
         for i in range(0, len(lista_trackings), BATCH_SIZE):
             lote = lista_trackings[i : i + BATCH_SIZE]
             if not lote: continue
-            
             format_strings = ','.join(['%s'] * len(lote))
             query = f"SELECT tracking, invoice FROM tracking_db WHERE tracking IN ({format_strings})"
-            
             cur.execute(query, tuple(lote))
             todos_los_datos.extend(cur.fetchall())
-            
         conn.close()
         return pd.DataFrame(todos_los_datos)
     except: 
@@ -116,16 +109,7 @@ def obtener_resumen_bases():
     if not conn: return pd.DataFrame()
     try:
         import pandas as pd
-        # SQL Optimizado para TiDB
-        query = """
-            SELECT 
-                invoice, 
-                COUNT(*) as cantidad, 
-                MAX(created_at) as fecha_creacion 
-            FROM tracking_db 
-            GROUP BY invoice 
-            ORDER BY fecha_creacion DESC
-        """
+        query = "SELECT invoice, COUNT(*) as cantidad, MAX(created_at) as fecha_creacion FROM tracking_db GROUP BY invoice ORDER BY fecha_creacion DESC"
         cur = conn.cursor(dictionary=True)
         cur.execute(query)
         data = cur.fetchall()
@@ -141,81 +125,90 @@ def eliminar_base_invoice(invoice):
     try: cur = conn.cursor(); cur.execute("DELETE FROM tracking_db WHERE invoice = %s", (invoice,)); conn.commit(); conn.close(); return True
     except: return False
 
+# --- NEXUS MAIL BD ---
+def init_mail_db():
+    conn = get_connection()
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute("""CREATE TABLE IF NOT EXISTS internal_messages (id INT AUTO_INCREMENT PRIMARY KEY, sender VARCHAR(100), receiver VARCHAR(100), subject VARCHAR(200), body TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, is_read BOOLEAN DEFAULT FALSE, INDEX idx_receiver (receiver), INDEX idx_sender (sender));""")
+            conn.commit(); conn.close()
+        except: pass
+
+def send_internal_message(sender, receiver, subject, body):
+    conn = get_connection()
+    if not conn: return False
+    try: cur = conn.cursor(); cur.execute("INSERT INTO internal_messages (sender, receiver, subject, body) VALUES (%s, %s, %s, %s)", (sender, receiver, subject, body)); conn.commit(); conn.close(); return True
+    except: return False
+
+def get_user_messages(user, box="inbox"):
+    conn = get_connection()
+    if not conn: return pd.DataFrame()
+    try:
+        import pandas as pd; cur = conn.cursor(dictionary=True)
+        if box == "inbox": cur.execute("SELECT * FROM internal_messages WHERE receiver=%s ORDER BY timestamp DESC", (user,))
+        elif box == "sent": cur.execute("SELECT * FROM internal_messages WHERE sender=%s ORDER BY timestamp DESC", (user,))
+        data = cur.fetchall(); conn.close(); return pd.DataFrame(data)
+    except: return pd.DataFrame()
+
+def get_all_usernames():
+    conn = get_connection(); 
+    if not conn: return []
+    try: cur = conn.cursor(); cur.execute("SELECT username FROM usuarios WHERE activo=1"); res = [x[0] for x in cur.fetchall()]; conn.close(); return res
+    except: return []
+
+# --- NEXUS BRAIN CONTEXT ---
+def get_system_context():
+    conn = get_connection()
+    if not conn: return "No hay conexión a la BD."
+    try:
+        cur = conn.cursor(dictionary=True)
+        cur.execute("SELECT COUNT(*) as total FROM pods WHERE DATE(fecha) = CURDATE()")
+        pods = cur.fetchone()['total']
+        cur.execute("SELECT COUNT(*) as total FROM tracking_db")
+        trackings = cur.fetchone()['total']
+        cur.execute("SELECT COUNT(*) as total FROM usuarios WHERE activo=1")
+        users = cur.fetchone()['total']
+        conn.close()
+        return f"DATOS TIEMPO REAL: PODs hoy: {pods}. Total Guías Tracking Pro: {trackings}. Usuarios activos: {users}. Proveedores: Mail Americas, APG, IMILE."
+    except Exception as e: return f"Error datos: {e}"
+
 # --- CSS SUPER ESTÉTICO ---
 def load_css(theme_code="light"):
     t = THEMES.get(theme_code, THEMES["light"])
     
     css = f"""
     <style>
-        /* UI Limpia */
         [data-testid="stSidebarNav"], [data-testid="stToolbar"], footer, header {{ display: none !important; }}
         #MainMenu, [data-testid="stStatusWidget"], .stDeployButton, [data-testid="stDecoration"] {{ display: none !important; visibility: hidden !important; }}
         
-        :root {{ 
-            --pri: {t['btn_pri']}; --bg: {t['bg']}; --card: {t['card']}; --txt: {t['text']}; 
-            --shadow: {t.get('shadow', 'rgba(0,0,0,0.1)')};
-        }}
+        :root {{ --pri: {t['btn_pri']}; --bg: {t['bg']}; --card: {t['card']}; --txt: {t['text']}; --shadow: {t.get('shadow', 'rgba(0,0,0,0.1)')}; }}
         
         @keyframes fadeInUp {{ from {{ opacity: 0; transform: translateY(20px); }} to {{ opacity: 1; transform: translateY(0); }} }}
         
-        .stApp {{ 
-            background-color: var(--bg); 
-            font-family: 'Segoe UI', sans-serif; 
-            color: var(--txt);
-            animation: fadeInUp 0.6s ease-out; 
-            margin-top: -60px;
-        }}
-
+        .stApp {{ background-color: var(--bg); font-family: 'Segoe UI', sans-serif; color: var(--txt); animation: fadeInUp 0.6s ease-out; margin-top: -60px; }}
         h1, h2, h3, p, label, .stDataFrame {{ color: var(--txt) !important; }}
         
-        section[data-testid="stSidebar"] {{ 
-            background-color: {t['nav_bg']} !important; 
-            border-right: 1px solid rgba(0,0,0,0.05);
-            box-shadow: 5px 0 15px var(--shadow);
-        }}
+        section[data-testid="stSidebar"] {{ background-color: {t['nav_bg']} !important; border-right: 1px solid rgba(0,0,0,0.05); box-shadow: 5px 0 15px var(--shadow); }}
         section[data-testid="stSidebar"] h1, section[data-testid="stSidebar"] div {{ color: {t['nav_text']} !important; }}
         
-        /* Botones del Menú */
         .menu-btn {{ 
-            width: 100%; height: 110px !important;
-            border: 1px solid rgba(0,0,0,0.05); border-radius: 16px;
-            background-color: var(--card); color: var(--txt);
-            font-size: 18px; font-weight: 600;
+            width: 100%; height: 110px !important; border: 1px solid rgba(0,0,0,0.05); border-radius: 16px;
+            background-color: var(--card); color: var(--txt); font-size: 18px; font-weight: 600;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            box-shadow: 0 4px 6px var(--shadow); 
-            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            box-shadow: 0 4px 6px var(--shadow); transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
             margin-bottom: 15px; cursor: pointer; position: relative; overflow: hidden;
         }}
-        .menu-btn:hover {{ 
-            transform: translateY(-5px) scale(1.02); 
-            box-shadow: 0 15px 30px var(--shadow); 
-            border-color: var(--pri); color: var(--pri);
-        }}
-
-        /* Botones Estándar */
-        div.stButton > button {{ 
-            width: 100%; border-radius: 12px; font-weight: 600; border: none;
-            box-shadow: 0 2px 4px var(--shadow); transition: all 0.2s;
-        }}
+        .menu-btn:hover {{ transform: translateY(-5px) scale(1.02); box-shadow: 0 15px 30px var(--shadow); border-color: var(--pri); color: var(--pri); }}
+        
+        div.stButton > button {{ width: 100%; border-radius: 12px; font-weight: 600; border: none; box-shadow: 0 2px 4px var(--shadow); transition: all 0.2s; }}
         div.stButton > button:hover {{ transform: translateY(-2px); box-shadow: 0 4px 12px var(--shadow); }}
-        div.stButton > button[kind="primary"] {{ 
-            background: {t['btn_pri']} !important; color: {t['btn_txt']} !important; 
-        }}
-
-        /* Inputs & Cards */
-        .stTextInput>div>div>input, .stSelectbox>div>div>div, .stTextArea>div>div>textarea {{ 
-            background-color: var(--card) !important; color: var(--txt) !important; 
-            border: 1px solid rgba(0,0,0,0.1) !important; border-radius: 10px;
-        }}
+        div.stButton > button[kind="primary"] {{ background: {t['btn_pri']} !important; color: {t['btn_txt']} !important; }}
+        
+        .stTextInput>div>div>input, .stSelectbox>div>div>div, .stTextArea>div>div>textarea {{ background-color: var(--card) !important; color: var(--txt) !important; border: 1px solid rgba(0,0,0,0.1) !important; border-radius: 10px; }}
         .stTextInput>div>div>input:focus {{ border-color: var(--pri) !important; box-shadow: 0 0 0 2px {t['btn_pri']}33; }}
         
-        .kpi-card, [data-testid="stExpander"], div.stForm, [data-testid="stContainer"] {{ 
-            background: var(--card); 
-            border: 1px solid rgba(0,0,0,0.05); border-radius: 16px; 
-            padding: 20px; 
-            box-shadow: 0 4px 20px var(--shadow);
-        }}
-        
+        .kpi-card, [data-testid="stExpander"], div.stForm, [data-testid="stContainer"] {{ background: var(--card); border: 1px solid rgba(0,0,0,0.05); border-radius: 16px; padding: 20px; box-shadow: 0 4px 20px var(--shadow); }}
         .kpi-val {{ font-size: 1.8rem; font-weight: 800; color: var(--txt); }}
         .kpi-lbl {{ font-size: 0.8rem; opacity: 0.7; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }}
 
@@ -223,6 +216,9 @@ def load_css(theme_code="light"):
         .stTabs [data-baseweb="tab"] {{ border-radius: 8px; padding: 8px 16px; transition: background 0.3s; }}
         .stTabs [data-baseweb="tab"]:hover {{ background-color: rgba(0,0,0,0.02); }}
         .stTabs [aria-selected="true"] {{ background-color: {t['btn_pri']}11 !important; color: var(--pri) !important; border: none !important; }}
+        
+        .stProgress > div > div > div > div {{ background-color: {t['btn_pri']} !important; }}
+        img {{ border-radius: 50%; }}
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
