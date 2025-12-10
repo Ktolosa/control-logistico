@@ -1,12 +1,13 @@
 import streamlit as st
 import utils
 import time
-from modules import calendario, analytics, gestor_temu, pod_digital, admin, configuracion, tracking_pro
+# IMPORTANTE: Asegúrate de que todos los archivos existan en la carpeta modules/
+from modules import calendario, analytics, gestor_temu, pod_digital, admin, configuracion, tracking_pro, nexus_mail, nexus_brain
 import pandas as pd
 import io
 from PIL import Image
 
-# 1. CONFIGURACIÓN (Debe ser lo primero)
+# 1. CONFIGURACIÓN
 st.set_page_config(page_title="Nexus Logística", layout="wide", initial_sidebar_state="collapsed")
 
 # 2. ESTADO
@@ -60,26 +61,17 @@ if not st.session_state['logged_in']:
             if st.button("Ingresar al Sistema", use_container_width=True, type="primary"):
                 usr = utils.verificar_login(u, p)
                 if usr:
-                    # --- TRANSICIÓN SEGURA ---
-                    # 1. Guardamos sesión primero
                     st.session_state['logged_in'] = True
                     st.session_state['user_info'] = usr
                     st.session_state['user_theme'] = usr.get('tema', 'light')
-                    
-                    # 2. Feedback visual elegante (Toast + Spinner)
                     st.toast(f"🚀 ¡Bienvenido, {usr['username']}!", icon="👋")
-                    
-                    # Barra de progreso simulada dentro del botón para dar sensación de carga
                     with st.spinner("Iniciando módulos..."):
-                        time.sleep(1.2) # Breve pausa para que se vea la animación
-                    
-                    # 3. Recarga segura
+                        time.sleep(1.2)
                     st.rerun()
                 else:
                     st.error("Credenciales incorrectas")
                     st.toast("⚠️ Error de acceso", icon="❌")
 
-        # Recuperación
         with st.expander("¿Olvidaste tu contraseña?", expanded=False):
             ur = st.text_input("Usuario a recuperar")
             if st.button("Solicitar Reset"):
@@ -96,7 +88,6 @@ if not st.session_state['logged_in']:
 u_info = st.session_state['user_info']
 rol = u_info['rol']
 
-# Sidebar Minimalista
 with st.sidebar:
     st.write("")
     if st.button("🔴 Cerrar Sesión", use_container_width=True):
@@ -107,6 +98,8 @@ with st.sidebar:
 MENU = {
     "calendar": {"title": "Calendario", "icon": "📅", "mod": calendario, "roles": ["all"]},
     "analytics": {"title": "Analytics", "icon": "📈", "mod": analytics, "roles": ["all"]},
+    "brain": {"title": "Nexus Brain", "icon": "🤖", "mod": nexus_brain, "roles": ["all"]},
+    "mail": {"title": "Nexus Mail", "icon": "📨", "mod": nexus_mail, "roles": ["all"]},
     "tracking_pro": {"title": "Tracking Pro", "icon": "🔍", "mod": tracking_pro, "roles": ["all"]},
     "temu": {"title": "Gestor TEMU", "icon": "📑", "mod": gestor_temu, "roles": ["all"]},
     "pod": {"title": "POD Digital", "icon": "📝", "mod": pod_digital, "roles": ["all"]},
@@ -126,7 +119,6 @@ if 'current_view' not in st.session_state: st.session_state['current_view'] = "m
 
 if st.session_state['current_view'] == "menu":
     
-    # --- ENCABEZADO PERFIL ---
     with st.container():
         c_pic, c_txt, c_ext = st.columns([0.8, 4, 1])
         with c_pic:
@@ -145,7 +137,6 @@ if st.session_state['current_view'] == "menu":
             
     st.divider()
 
-    # Grid de Herramientas
     pending = count_pending() if rol == 'admin' else 0
     valid_keys = [k for k,v in MENU.items() if "all" in v['roles'] or rol in v['roles']]
     
@@ -160,7 +151,6 @@ if st.session_state['current_view'] == "menu":
                 st.rerun()
 
 else:
-    # VISTA HERRAMIENTA
     c_back, c_tit = st.columns([1, 6])
     if c_back.button("⬅️ Volver", use_container_width=True):
         st.session_state['current_view'] = "menu"
