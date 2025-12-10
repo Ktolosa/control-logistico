@@ -41,8 +41,10 @@ def show(user_info):
                 # 1. Obtener contexto fresco
                 contexto = get_system_context()
                 
-                # 2. Configurar Modelo
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                # 2. Configurar Modelo 
+                # CAMBIO AQUÍ: Usamos 'gemini-pro' que es el más estable
+                model = genai.GenerativeModel('gemini-pro') 
+                
                 system_instruction = f"Eres el asistente de Nexus Logística. Datos actuales: {contexto}. Responde breve y profesionalmente."
                 
                 # 3. Llamar API
