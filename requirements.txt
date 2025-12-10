@@ -13,4 +13,5 @@ opencv-python-headless
 pyzbar
 pillow
 numpy
-google-generativeai  <-- ¡NUEVO!
+google-generativeai
+protobuf
