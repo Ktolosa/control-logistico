@@ -1,106 +1,144 @@
 import streamlit as st
 import google.generativeai as genai
-from utils import get_system_context
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from utils import get_connection
 import time
+import re
 
-# --- CONFIGURACIÓN SEGURA ---
+# --- CONFIGURACIÓN AUTOMÁTICA DE MODELO ---
 def configure_gemini():
-    """Configura la API y busca un modelo disponible automáticamente"""
     if "gemini" in st.secrets:
         try:
             genai.configure(api_key=st.secrets["gemini"]["api_key"])
+            # Lista de modelos prioritaria
+            preferred = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-pro']
+            available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
             
-            # INTENTO DE AUTO-DESCUBRIMIENTO DE MODELO
-            # Buscamos modelos que soporten 'generateContent'
-            available_models = []
-            for m in genai.list_models():
-                if 'generateContent' in m.supported_generation_methods:
-                    available_models.append(m.name)
-            
-            # Preferencia: Flash > Pro > 1.0 > Cualquiera
-            preferred_order = ['models/gemini-1.5-flash', 'models/gemini-pro', 'models/gemini-1.0-pro', 'models/gemini-1.5-pro']
-            
-            selected_model = None
-            
-            # 1. Buscar preferidos
-            for pref in preferred_order:
-                if pref in available_models:
-                    selected_model = pref
-                    break
-            
-            # 2. Si no hay preferidos, usar el primero disponible
-            if not selected_model and available_models:
-                selected_model = available_models[0]
-                
-            return selected_model
-            
-        except Exception as e:
-            return None
+            for p in preferred:
+                if p in available: return p
+            return available[0] if available else None
+        except: return None
     return None
 
+# --- CARGAR DATOS PARA LA IA (DATAFRAMES REALES) ---
+def load_data_for_brain():
+    conn = get_connection()
+    data = {}
+    if conn:
+        try:
+            # 1. Calendario
+            data['df_cal'] = pd.read_sql("SELECT * FROM registro_logistica", conn)
+            # 2. PODs
+            data['df_pods'] = pd.read_sql("SELECT * FROM pods", conn)
+            # 3. Tracking
+            data['df_track'] = pd.read_sql("SELECT * FROM tracking_db", conn)
+            conn.close()
+        except: pass
+    return data
+
 def show(user_info):
-    st.title("🤖 Nexus Brain")
-    st.caption("Inteligencia Artificial conectada a tu Logística")
+    st.title("🤖 Nexus Brain Pro")
+    st.caption("Analítica Avanzada con IA Generativa")
 
-    # Verificar API Key
+    # 1. Validación de API
     if "gemini" not in st.secrets:
-        st.warning("⚠️ No se ha configurado la API Key de Gemini en secrets.toml")
-        return
+        st.error("⚠️ Falta API Key en secrets.toml"); return
 
-    # Obtener modelo dinámicamente
     model_name = configure_gemini()
-    
-    if not model_name:
-        st.error("❌ No se pudo conectar con Google AI o no hay modelos disponibles para tu API Key.")
-        return
+    if not model_name: st.error("❌ No hay modelos disponibles."); return
 
-    # Historial
+    # 2. Cargar Datos en Memoria (Contexto para el Code Interpreter)
+    datasets = load_data_for_brain()
+    df_cal = datasets.get('df_cal', pd.DataFrame())
+    df_pods = datasets.get('df_pods', pd.DataFrame())
+    df_track = datasets.get('df_track', pd.DataFrame())
+
+    # 3. Preparar Prompt del Sistema (Explicando las tablas)
+    data_summary = f"""
+    TIENES ACCESO A LAS SIGUIENTES TABLAS DE DATOS (PANDAS DATAFRAMES):
+    
+    1. df_cal (Calendario de Entradas):
+       - Columnas: {list(df_cal.columns) if not df_cal.empty else 'Vacia'}
+       - Contiene: Registros de llegada de paquetes, proveedores, fechas.
+    
+    2. df_pods (Manifiestos de Salida):
+       - Columnas: {list(df_pods.columns) if not df_pods.empty else 'Vacia'}
+       - Contiene: Entregas realizadas, clientes, rutas, responsables.
+       
+    3. df_track (Inventario Tracking Pro):
+       - Columnas: {list(df_track.columns) if not df_track.empty else 'Vacia'}
+       - Contiene: Guías individuales y su invoice asociado.
+
+    INSTRUCCIONES PARA RESPONDER:
+    - Si te piden DATOS o TABLAS: Responde en formato Markdown normal.
+    - Si te piden GRÁFICOS: Debes generar CÓDIGO PYTHON ejecutable.
+      - Usa la librería `plotly.express` como `px`.
+      - Crea la figura y guárdala en una variable `fig`.
+      - NO uses `fig.show()`.
+      - El código debe estar delimitado estrictamente por tres comillas invertidas y la palabra python: ```python ... ```
+      - Asume que los dataframes `df_cal`, `df_pods`, `df_track` ya existen y están cargados.
+    """
+
+    # 4. Chat UI
     if "messages" not in st.session_state:
-        st.session_state.messages = [{"role": "assistant", "content": f"¡Hola {user_info['username']}! Soy la IA de Nexus (Motor: {model_name}). ¿Qué necesitas saber hoy?"}]
+        st.session_state.messages = [{"role": "assistant", "content": "¡Hola! Soy Nexus Brain Pro. Puedo generar gráficos y tablas de tus datos. ¿Qué quieres visualizar?"}]
 
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+            # Si el mensaje contiene código de gráfico (marcado internamente), lo ejecutamos
+            if "```python" in msg["content"] and msg["role"] == "assistant":
+                parts = msg["content"].split("```python")
+                # Texto antes del gráfico
+                st.markdown(parts[0])
+                # Ejecutar gráfico
+                if len(parts) > 1:
+                    code_block = parts[1].split("```")[0]
+                    try:
+                        # Entorno local seguro para ejecución
+                        local_env = {"pd": pd, "px": px, "go": go, "df_cal": df_cal, "df_pods": df_pods, "df_track": df_track}
+                        exec(code_block, {}, local_env)
+                        if 'fig' in local_env:
+                            st.plotly_chart(local_env['fig'], use_container_width=True)
+                    except Exception as e:
+                        st.error(f"Error generando gráfico: {e}")
+            else:
+                st.markdown(msg["content"])
 
-    # Input Usuario
-    if prompt := st.chat_input("Escribe tu consulta aquí..."):
+    # 5. Lógica de Respuesta
+    if prompt := st.chat_input("Ej: Grafica los paquetes por proveedor..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+        with st.chat_message("user"): st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            message_placeholder = st.empty()
-            full_response = ""
-            
-            try:
-                # 1. Contexto
-                contexto = get_system_context()
-                
-                # 2. Configurar Modelo Detectado
-                model = genai.GenerativeModel(model_name)
-                
-                system_instruction = f"""
-                Eres Nexus Brain, el asistente experto de logística.
-                DATOS EN TIEMPO REAL: {contexto}
-                Instrucciones: Responde de forma breve, útil y profesional. Si te preguntan datos, usa los que te acabo de dar.
-                """
-                
-                # 3. Llamar API
-                chat = model.start_chat(history=[])
-                response = chat.send_message(f"{system_instruction}\nUsuario: {prompt}")
-                
-                full_response = response.text
-                
-                # 4. Efecto escritura
-                display_text = ""
-                for chunk in full_response.split():
-                    display_text += chunk + " "
-                    time.sleep(0.05)
-                    message_placeholder.markdown(display_text + "▌")
-                message_placeholder.markdown(full_response)
-
-            except Exception as e:
-                full_response = f"Error IA ({model_name}): {str(e)}"
-                message_placeholder.error(full_response)
-
-        st.session_state.messages.append({"role": "assistant", "content": full_response})
+            with st.spinner("Analizando datos y generando respuesta..."):
+                try:
+                    model = genai.GenerativeModel(model_name)
+                    chat = model.start_chat(history=[]) # Historial simplificado para ahorro de tokens
+                    
+                    response = chat.send_message(f"{data_summary}\n\nUSUARIO: {prompt}")
+                    text_resp = response.text
+                    
+                    # Detectar si hay código para ejecutar
+                    if "```python" in text_resp:
+                        parts = text_resp.split("```python")
+                        st.markdown(parts[0]) # Texto explicativo
+                        
+                        code_block = parts[1].split("```")[0]
+                        
+                        # Ejecución en vivo
+                        local_env = {"pd": pd, "px": px, "go": go, "df_cal": df_cal, "df_pods": df_pods, "df_track": df_track}
+                        exec(code_block, {}, local_env)
+                        
+                        if 'fig' in local_env:
+                            st.plotly_chart(local_env['fig'], use_container_width=True)
+                        else:
+                            st.warning("La IA generó código pero no creó la variable 'fig'.")
+                    else:
+                        st.markdown(text_resp)
+                        
+                    st.session_state.messages.append({"role": "assistant", "content": text_resp})
+                    
+                except Exception as e:
+                    st.error(f"Error: {e}")
