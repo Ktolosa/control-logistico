@@ -109,7 +109,15 @@ def obtener_resumen_bases():
     if not conn: return pd.DataFrame()
     try:
         import pandas as pd
-        query = "SELECT invoice, COUNT(*) as cantidad, MAX(created_at) as fecha_creacion FROM tracking_db GROUP BY invoice ORDER BY fecha_creacion DESC"
+        query = """
+            SELECT 
+                invoice, 
+                COUNT(*) as cantidad, 
+                MAX(created_at) as fecha_creacion 
+            FROM tracking_db 
+            GROUP BY invoice 
+            ORDER BY fecha_creacion DESC
+        """
         cur = conn.cursor(dictionary=True)
         cur.execute(query)
         data = cur.fetchall()
@@ -159,7 +167,7 @@ def get_all_usernames():
     try: cur = conn.cursor(); cur.execute("SELECT username FROM usuarios WHERE activo=1"); res = [x[0] for x in cur.fetchall()]; conn.close(); return res
     except: return []
 
-# --- NEXUS BRAIN: CONTEXTO TOTAL (OMNISCIENCIA) ---
+# --- NEXUS BRAIN: CONTEXTO TOTAL (CORREGIDO) ---
 def get_system_context():
     conn = get_connection()
     if not conn: return "Error: Sin conexión a base de datos."
@@ -175,7 +183,8 @@ def get_system_context():
         user_list = ", ".join([f"{u['username']}({u['rol']})" for u in users])
         context += f"👥 USUARIOS ACTIVOS: {len(users)}\nLista: {user_list}\n\n"
         
-        # 2. CALENDARIO (REGISTRO LOGISTICA) - Resumen Mensual
+        # 2. CALENDARIO (REGISTRO LOGISTICA) - CORREGIDO ORDER BY
+        # Usamos ORDER BY con las columnas del GROUP BY o Agregadas para evitar error SQL estricto
         cur.execute("""
             SELECT 
                 MONTHNAME(fecha) as mes, 
@@ -185,21 +194,23 @@ def get_system_context():
                 GROUP_CONCAT(DISTINCT proveedor_logistico SEPARATOR ', ') as provs
             FROM registro_logistica 
             GROUP BY YEAR(fecha), MONTH(fecha), MONTHNAME(fecha)
-            ORDER BY fecha DESC LIMIT 6
+            ORDER BY anio DESC, MONTH(fecha) DESC 
+            LIMIT 6
         """)
         cal_data = cur.fetchall()
         context += "📅 ESTADÍSTICAS CALENDARIO (Últimos 6 meses):\n"
         for r in cal_data:
-            context += f"- {r['mes']} {r['anio']}: {int(r['total_paq'])} paquetes en {r['total_viajes']} viajes. Provs: {r['provs']}\n"
+            context += f"- {r['mes']} {r['anio']}: {int(r['total_paq'])} paquetes en {r['total_viajes']} viajes (Lotes/Masters). Provs: {r['provs']}\n"
         
         # 3. CALENDARIO - Últimos 5 registros detallados
         cur.execute("SELECT fecha, proveedor_logistico, paquetes, master_lote FROM registro_logistica ORDER BY fecha DESC LIMIT 5")
         last_cal = cur.fetchall()
-        context += "\n🔍 ÚLTIMOS INGRESOS CALENDARIO:\n"
+        context += "\n🔍 ÚLTIMOS INGRESOS CALENDARIO (Detalle):\n"
         for r in last_cal:
-            context += f"- {r['fecha']}: {r['proveedor_logistico']} con {r['paquetes']} paq. (Master: {str(r['master_lote'])[:20]}...)\n"
+            context += f"- {r['fecha']}: {r['proveedor_logistico']} con {r['paquetes']} paq. (Master: {str(r['master_lote'])[:30]}...)\n"
 
         # 4. TRACKING PRO
+        # Corregido también aquí por si acaso el strict mode
         cur.execute("""
             SELECT invoice, COUNT(*) as cant, MAX(created_at) as fecha 
             FROM tracking_db GROUP BY invoice ORDER BY fecha DESC LIMIT 10
