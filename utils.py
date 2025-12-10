@@ -148,7 +148,9 @@ def get_user_messages(user, box="inbox"):
         import pandas as pd; cur = conn.cursor(dictionary=True)
         if box == "inbox": cur.execute("SELECT * FROM internal_messages WHERE receiver=%s ORDER BY timestamp DESC", (user,))
         elif box == "sent": cur.execute("SELECT * FROM internal_messages WHERE sender=%s ORDER BY timestamp DESC", (user,))
-        data = cur.fetchall(); conn.close(); return pd.DataFrame(data)
+        data = cur.fetchall()
+        conn.close()
+        return pd.DataFrame(data)
     except: return pd.DataFrame()
 
 def get_all_usernames():
@@ -157,21 +159,78 @@ def get_all_usernames():
     try: cur = conn.cursor(); cur.execute("SELECT username FROM usuarios WHERE activo=1"); res = [x[0] for x in cur.fetchall()]; conn.close(); return res
     except: return []
 
-# --- NEXUS BRAIN CONTEXT ---
+# --- NEXUS BRAIN: CONTEXTO TOTAL (OMNISCIENCIA) ---
 def get_system_context():
     conn = get_connection()
-    if not conn: return "No hay conexión a la BD."
+    if not conn: return "Error: Sin conexión a base de datos."
+    
+    context = "INFORME DEL ESTADO DEL SISTEMA NEXUS:\n\n"
+    
     try:
         cur = conn.cursor(dictionary=True)
-        cur.execute("SELECT COUNT(*) as total FROM pods WHERE DATE(fecha) = CURDATE()")
-        pods = cur.fetchone()['total']
-        cur.execute("SELECT COUNT(*) as total FROM tracking_db")
-        trackings = cur.fetchone()['total']
-        cur.execute("SELECT COUNT(*) as total FROM usuarios WHERE activo=1")
-        users = cur.fetchone()['total']
+        
+        # 1. USUARIOS
+        cur.execute("SELECT username, rol FROM usuarios WHERE activo=1")
+        users = cur.fetchall()
+        user_list = ", ".join([f"{u['username']}({u['rol']})" for u in users])
+        context += f"👥 USUARIOS ACTIVOS: {len(users)}\nLista: {user_list}\n\n"
+        
+        # 2. CALENDARIO (REGISTRO LOGISTICA) - Resumen Mensual
+        cur.execute("""
+            SELECT 
+                MONTHNAME(fecha) as mes, 
+                YEAR(fecha) as anio,
+                SUM(paquetes) as total_paq,
+                COUNT(*) as total_viajes,
+                GROUP_CONCAT(DISTINCT proveedor_logistico SEPARATOR ', ') as provs
+            FROM registro_logistica 
+            GROUP BY YEAR(fecha), MONTH(fecha), MONTHNAME(fecha)
+            ORDER BY fecha DESC LIMIT 6
+        """)
+        cal_data = cur.fetchall()
+        context += "📅 ESTADÍSTICAS CALENDARIO (Últimos 6 meses):\n"
+        for r in cal_data:
+            context += f"- {r['mes']} {r['anio']}: {int(r['total_paq'])} paquetes en {r['total_viajes']} viajes. Provs: {r['provs']}\n"
+        
+        # 3. CALENDARIO - Últimos 5 registros detallados
+        cur.execute("SELECT fecha, proveedor_logistico, paquetes, master_lote FROM registro_logistica ORDER BY fecha DESC LIMIT 5")
+        last_cal = cur.fetchall()
+        context += "\n🔍 ÚLTIMOS INGRESOS CALENDARIO:\n"
+        for r in last_cal:
+            context += f"- {r['fecha']}: {r['proveedor_logistico']} con {r['paquetes']} paq. (Master: {str(r['master_lote'])[:20]}...)\n"
+
+        # 4. TRACKING PRO
+        cur.execute("""
+            SELECT invoice, COUNT(*) as cant, MAX(created_at) as fecha 
+            FROM tracking_db GROUP BY invoice ORDER BY fecha DESC LIMIT 10
+        """)
+        track_data = cur.fetchall()
+        context += "\n🔎 TRACKING PRO (Bases Recientes):\n"
+        for r in track_data:
+            context += f"- Invoice {r['invoice']}: {r['cant']} guías (Creado: {r['fecha']})\n"
+            
+        # 5. PODs DIGITALES
+        cur.execute("""
+            SELECT cliente, COUNT(*) as total 
+            FROM pods GROUP BY cliente ORDER BY total DESC
+        """)
+        pod_stats = cur.fetchall()
+        context += "\n📝 MANIFIESTOS POD (Histórico por Cliente):\n"
+        for r in pod_stats:
+            context += f"- {r['cliente']}: {r['total']} manifiestos\n"
+            
+        # 6. PODs - Últimos 5 generados
+        cur.execute("SELECT pod_code, fecha, cliente, ruta, responsable FROM pods ORDER BY fecha DESC LIMIT 5")
+        last_pods = cur.fetchall()
+        context += "\n📦 ÚLTIMOS PODs GENERADOS:\n"
+        for r in last_pods:
+            context += f"- {r['pod_code']} ({r['fecha']}): {r['cliente']} hacia {r['ruta']} (Resp: {r['responsable']})\n"
+
         conn.close()
-        return f"DATOS TIEMPO REAL: PODs hoy: {pods}. Total Guías Tracking Pro: {trackings}. Usuarios activos: {users}. Proveedores: Mail Americas, APG, IMILE."
-    except Exception as e: return f"Error datos: {e}"
+        return context
+        
+    except Exception as e:
+        return f"Error generando contexto: {str(e)}"
 
 # --- CSS SUPER ESTÉTICO ---
 def load_css(theme_code="light"):
