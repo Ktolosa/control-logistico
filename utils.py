@@ -292,3 +292,95 @@ def load_css(theme_code="light"):
     </style>
     """
     st.markdown(css, unsafe_allow_html=True)
+
+# --- TRACKING PRO 2 (SEGUNDA BASE): FUNCIONES BD ---
+
+def init_tracking_db_2():
+    """Crea la segunda tabla independiente en TiDB/MySQL"""
+    conn = get_connection()
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS tracking_db_2 (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    invoice VARCHAR(100) NOT NULL,
+                    tracking VARCHAR(100) NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX idx_tracking_2 (tracking),
+                    INDEX idx_invoice_2 (invoice)
+                );
+            """)
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            if conn: conn.close()
+
+def guardar_base_tracking_2(invoice, lista_trackings):
+    conn = get_connection() 
+    if not conn: return False, "Error de Conexión"
+    try:
+        cur = conn.cursor()
+        vals = [(invoice, t) for t in lista_trackings]
+        cur.executemany("INSERT INTO tracking_db_2 (invoice, tracking) VALUES (%s, %s)", vals)
+        conn.commit()
+        conn.close()
+        return True, f"{len(vals)} guardados"
+    except Exception as e:
+        if conn: conn.close()
+        return False, str(e)
+
+def buscar_trackings_masivo_2(lista_trackings):
+    conn = get_connection()
+    if not conn: return pd.DataFrame()
+    todos_los_datos = []
+    BATCH_SIZE = 1000 
+    try:
+        cur = conn.cursor(dictionary=True)
+        for i in range(0, len(lista_trackings), BATCH_SIZE):
+            lote = lista_trackings[i : i + BATCH_SIZE]
+            if not lote: continue
+            format_strings = ','.join(['%s'] * len(lote))
+            query = f"SELECT tracking, invoice FROM tracking_db_2 WHERE tracking IN ({format_strings})"
+            cur.execute(query, tuple(lote))
+            todos_los_datos.extend(cur.fetchall())
+        conn.close()
+        return pd.DataFrame(todos_los_datos)
+    except Exception as e: 
+        if conn: conn.close()
+        return pd.DataFrame(todos_los_datos) if todos_los_datos else pd.DataFrame()
+
+def obtener_resumen_bases_2():
+    conn = get_connection()
+    if not conn: return pd.DataFrame()
+    try:
+        query = """
+            SELECT 
+                invoice, 
+                COUNT(*) as cantidad, 
+                MAX(created_at) as fecha_creacion 
+            FROM tracking_db_2 
+            GROUP BY invoice 
+            ORDER BY fecha_creacion DESC
+        """
+        cur = conn.cursor(dictionary=True)
+        cur.execute(query)
+        data = cur.fetchall()
+        conn.close()
+        return pd.DataFrame(data)
+    except Exception as e:
+        if conn: conn.close()
+        return pd.DataFrame()
+
+def eliminar_base_invoice_2(invoice):
+    conn = get_connection() 
+    if not conn: return False
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM tracking_db_2 WHERE invoice = %s", (invoice,))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        if conn: conn.close()
+        return False
