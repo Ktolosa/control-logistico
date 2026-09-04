@@ -2,7 +2,7 @@ import streamlit as st
 import utils
 import time
 # IMPORTANTE: Asegúrate de que todos los archivos existan en la carpeta modules/
-from modules import calendario, analytics, gestor_temu, pod_digital, admin, configuracion, tracking_pro, nexus_mail, nexus_brain
+from modules import calendario, analytics, gestor_temu, pod_digital, admin, configuracion, tracking_pro, nexus_mail, nexus_brain, tracking_secundario
 import pandas as pd
 import io
 from PIL import Image
