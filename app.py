@@ -101,6 +101,7 @@ MENU = {
     "brain": {"title": "Nexus Brain", "icon": "🤖", "mod": nexus_brain, "roles": ["all"]},
     "mail": {"title": "Nexus Mail", "icon": "📨", "mod": nexus_mail, "roles": ["all"]},
     "tracking_pro": {"title": "Tracking Pro", "icon": "🔍", "mod": tracking_pro, "roles": ["all"]},
+    "tracking_secundario": {"title": "Tracking Secundario", "icon": "🔎", "mod": tracking_secundario, "roles": ["all"]},
     "temu": {"title": "Gestor TEMU", "icon": "📑", "mod": gestor_temu, "roles": ["all"]},
     "pod": {"title": "POD Digital", "icon": "📝", "mod": pod_digital, "roles": ["all"]},
     "admin": {"title": "Admin", "icon": "👥", "mod": admin, "roles": ["admin"]},
