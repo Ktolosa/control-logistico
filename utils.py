@@ -1,5 +1,6 @@
 import streamlit as st
 import mysql.connector
+import pandas as pd
 import io
 import cv2
 import numpy as np
@@ -54,7 +55,6 @@ def decode_image(image_file):
 
 def to_excel_bytes(df, fmt='xlsx'):
     out = io.BytesIO()
-    import pandas as pd
     if fmt == 'xlsx':
         with pd.ExcelWriter(out, engine='xlsxwriter') as w: df.to_excel(w, index=False, sheet_name='Sheet1')
     else:
@@ -89,7 +89,6 @@ def buscar_trackings_masivo(lista_trackings):
     todos_los_datos = []
     BATCH_SIZE = 1000 
     try:
-        import pandas as pd
         cur = conn.cursor(dictionary=True)
         for i in range(0, len(lista_trackings), BATCH_SIZE):
             lote = lista_trackings[i : i + BATCH_SIZE]
@@ -108,7 +107,6 @@ def obtener_resumen_bases():
     conn = get_connection()
     if not conn: return pd.DataFrame()
     try:
-        import pandas as pd
         query = """
             SELECT 
                 invoice, 
@@ -153,7 +151,7 @@ def get_user_messages(user, box="inbox"):
     conn = get_connection()
     if not conn: return pd.DataFrame()
     try:
-        import pandas as pd; cur = conn.cursor(dictionary=True)
+        cur = conn.cursor(dictionary=True)
         if box == "inbox": cur.execute("SELECT * FROM internal_messages WHERE receiver=%s ORDER BY timestamp DESC", (user,))
         elif box == "sent": cur.execute("SELECT * FROM internal_messages WHERE sender=%s ORDER BY timestamp DESC", (user,))
         data = cur.fetchall()
@@ -183,8 +181,7 @@ def get_system_context():
         user_list = ", ".join([f"{u['username']}({u['rol']})" for u in users])
         context += f"👥 USUARIOS ACTIVOS: {len(users)}\nLista: {user_list}\n\n"
         
-        # 2. CALENDARIO (REGISTRO LOGISTICA) - CORREGIDO ORDER BY
-        # Usamos ORDER BY con las columnas del GROUP BY o Agregadas para evitar error SQL estricto
+        # 2. CALENDARIO (REGISTRO LOGISTICA)
         cur.execute("""
             SELECT 
                 MONTHNAME(fecha) as mes, 
@@ -210,7 +207,6 @@ def get_system_context():
             context += f"- {r['fecha']}: {r['proveedor_logistico']} con {r['paquetes']} paq. (Master: {str(r['master_lote'])[:30]}...)\n"
 
         # 4. TRACKING PRO
-        # Corregido también aquí por si acaso el strict mode
         cur.execute("""
             SELECT invoice, COUNT(*) as cant, MAX(created_at) as fecha 
             FROM tracking_db GROUP BY invoice ORDER BY fecha DESC LIMIT 10
