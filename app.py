@@ -2,8 +2,7 @@ import streamlit as st
 import utils
 import time
 # IMPORTANTE: Asegúrate de que todos los archivos existan en la carpeta modules/
-from modules import calendario, analytics, gestor_temu, pod_digital, admin, configuracion, tracking_pro, nexus_mail, nexus_brain, tracking_secundario
-import pandas as pd
+from modules import calendario, analytics, gestor_temu, pod_digital, admin, configuracion, tracking_pro, nexus_mail, nexus_brain, tracking_secundario, finanzas
 import io
 from PIL import Image
 
@@ -106,6 +105,7 @@ MENU = {
     "pod": {"title": "POD Digital", "icon": "📝", "mod": pod_digital, "roles": ["all"]},
     "admin": {"title": "Admin", "icon": "👥", "mod": admin, "roles": ["admin"]},
     "config": {"title": "Ajustes", "icon": "⚙️", "mod": configuracion, "roles": ["all"]},
+    "finanzas": {"title": "Facturación", "icon": "💰", "mod": finanzas, "roles": ["all"]},
 }
 
 def count_pending():
