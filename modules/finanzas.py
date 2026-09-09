@@ -27,38 +27,51 @@ def init_finanzas_db():
                     total DECIMAL(10,2),
                     pdf_file LONGBLOB,
                     created_by VARCHAR(100),
+                    is_modified BOOLEAN DEFAULT FALSE,
+                    modified_by VARCHAR(100) DEFAULT NULL,
                     UNIQUE KEY unique_tipo_inv (tipo_factura, invoice_num)
                 );
             """)
             
-            try:
-                cur.execute("ALTER TABLE facturas ADD COLUMN tipo_factura VARCHAR(50) DEFAULT 'Funds' AFTER id;")
-                cur.execute("ALTER TABLE facturas DROP INDEX invoice_num;")
-                cur.execute("ALTER TABLE facturas ADD UNIQUE KEY unique_tipo_inv (tipo_factura, invoice_num);")
-            except:
-                pass 
+            # Migraciones seguras para tablas existentes
+            try: cur.execute("ALTER TABLE facturas ADD COLUMN tipo_factura VARCHAR(50) DEFAULT 'Funds' AFTER id;")
+            except: pass
+            try: cur.execute("ALTER TABLE facturas DROP INDEX invoice_num;")
+            except: pass
+            try: cur.execute("ALTER TABLE facturas ADD UNIQUE KEY unique_tipo_inv (tipo_factura, invoice_num);")
+            except: pass
+            try: cur.execute("ALTER TABLE facturas ADD COLUMN is_modified BOOLEAN DEFAULT FALSE;")
+            except: pass
+            try: cur.execute("ALTER TABLE facturas ADD COLUMN modified_by VARCHAR(100) DEFAULT NULL;")
+            except: pass
                 
             conn.commit()
             conn.close()
         except Exception as e:
             if conn: conn.close()
 
-# --- 2. OBTENER SIGUIENTE CORRELATIVO POR TIPO ---
+# --- 2. OBTENER SIGUIENTE CORRELATIVO (LÓGICA DE HUECOS) ---
 def get_next_invoice_number(tipo_factura):
     conn = get_connection()
-    if not conn: return "0001"
+    if not conn: return "0046"
     try:
         cur = conn.cursor()
-        cur.execute("SELECT invoice_num FROM facturas WHERE tipo_factura = %s ORDER BY id DESC LIMIT 1", (tipo_factura,))
-        res = cur.fetchone()
+        cur.execute("SELECT invoice_num FROM facturas WHERE tipo_factura = %s", (tipo_factura,))
+        # Extraemos los números usados y los convertimos a enteros
+        numeros_usados = [int(r[0]) for r in cur.fetchall() if r[0].isdigit()]
         conn.close()
-        if res:
-            last_num = int(res[0])
-            return f"{(last_num + 1):04d}" 
-        return "0001"
+        
+        # El requerimiento dice empezar desde el 46
+        next_num = 46 
+        
+        # Busca el primer número que NO esté en la lista de usados
+        while next_num in numeros_usados:
+            next_num += 1
+            
+        return f"{next_num:04d}" 
     except:
         if conn: conn.close()
-        return "0001"
+        return "0046"
 
 # --- 3. GENERAR PDF ---
 def generar_factura_pdf(tipo_factura, inv_num, fecha, cliente, direccion, concepto, cant_paq, subtotal, tax, otros, total):
@@ -83,8 +96,15 @@ def generar_factura_pdf(tipo_factura, inv_num, fecha, cliente, direccion, concep
     
     pdf.text(150, 60, "Date:")
     pdf.set_text_color(0, 0, 0)
+    
+    # Si la fecha es un string (desde BD) o datetime
+    if isinstance(fecha, str):
+        try: fecha = datetime.strptime(fecha, '%Y-%m-%d %H:%M:%S')
+        except: pass
+    
+    fecha_str = fecha.strftime("%d-%b-%Y") if isinstance(fecha, datetime) else str(fecha)
     pdf.set_font("Arial", '', 12)
-    pdf.text(150, 68, fecha.strftime("%d-%b-%Y"))
+    pdf.text(150, 68, fecha_str)
     
     pdf.set_text_color(22, 60, 115)
     pdf.set_font("Arial", 'B', 16)
@@ -144,7 +164,6 @@ def generar_factura_pdf(tipo_factura, inv_num, fecha, cliente, direccion, concep
     return pdf.output(dest='S').encode('latin-1')
 
 # --- 4. CONFIGURACIÓN DE TIPOS DE FACTURA ---
-# Aquí puedes editar los datos fijos para cada tipo de invoice
 CONFIG_TIPOS = {
     "Funds": {
         "cliente": "RADIANCE SEA HONG KONG LIMITED",
@@ -177,8 +196,11 @@ def show(user_info):
     init_finanzas_db()
     st.title("💰 Finanzas y Facturación")
     
-    t1, t2 = st.tabs(["Generar Nueva Factura", "Historial de Facturas"])
+    t1, t2 = st.tabs(["Generar Nueva Factura", "Historial y Edición"])
     
+    # ==========================================
+    # PESTAÑA 1: GENERAR NUEVA
+    # ==========================================
     with t1:
         st.subheader("Configuración y Detalles")
         
@@ -186,7 +208,6 @@ def show(user_info):
         lista_tipos = list(CONFIG_TIPOS.keys())
         tipo_sel = c_tipo.selectbox("Tipo de Factura (Campo 'For'):", lista_tipos)
         
-        # Extraer configuración del tipo seleccionado
         cfg = CONFIG_TIPOS[tipo_sel]
         
         c1, c2 = st.columns(2)
@@ -194,7 +215,6 @@ def show(user_info):
         
         with c1:
             st.info(f"**Próximo Invoice # para {tipo_sel}:** {inv_auto}")
-            # Campos bloqueados con disabled=True
             cliente = st.text_input("Cliente (Bill To)", value=cfg["cliente"], disabled=True)
             direccion = st.text_area("Dirección del Cliente", value=cfg["direccion"], disabled=True)
         
@@ -206,9 +226,7 @@ def show(user_info):
         st.divider()
         st.subheader("Desglose Financiero")
         c3, c4, c5 = st.columns(3)
-        # Solo el subtotal es editable
         subtotal = c3.number_input("Subtotal ($)", min_value=0.0, step=0.01)
-        # Tax y Other Costs bloqueados
         tax = c4.number_input("Tax Rate ($)", value=cfg["tax_rate"], disabled=True)
         otros = c5.number_input("Other Costs ($)", value=cfg["other_costs"], disabled=True)
         
@@ -238,29 +256,115 @@ def show(user_info):
                         finally:
                             conn.close()
     
+    # ==========================================
+    # PESTAÑA 2: HISTORIAL, EDICIÓN Y ELIMINACIÓN
+    # ==========================================
     with t2:
-        st.subheader("Historial de Invoices")
+        st.subheader("Gestión de Invoices")
         conn = get_connection()
         if conn:
             try:
-                df_fac = pd.read_sql("SELECT id, tipo_factura as 'Tipo', invoice_num as 'Invoice #', fecha as 'Fecha', cliente as 'Cliente', cantidad_paquetes as 'Paquetes', total as 'Total ($)' FROM facturas ORDER BY id DESC", conn)
+                # Obtenemos los datos incluyendo los nuevos campos de auditoría
+                query = """
+                    SELECT id, tipo_factura as 'Tipo', invoice_num as 'Invoice #', fecha as 'Fecha', 
+                    cliente as 'Cliente', total as 'Total ($)', created_by as 'Creado Por', 
+                    is_modified as 'Modificada', modified_by as 'Modif. Por' 
+                    FROM facturas ORDER BY tipo_factura, invoice_num DESC
+                """
+                df_fac = pd.read_sql(query, conn)
+                
                 if df_fac.empty:
                     st.info("No hay facturas generadas aún.")
                 else:
+                    # Damos formato visual a la columna 'Modificada'
+                    df_fac['Modificada'] = df_fac['Modificada'].apply(lambda x: "⚠️ Sí" if x else "No")
                     st.dataframe(df_fac, use_container_width=True)
                     
                     st.divider()
-                    st.write("**Reimprimir Factura**")
+                    st.write("### 🛠️ Acciones de Factura")
                     
-                    opciones_descarga = df_fac.apply(lambda row: f"{row['Tipo']} - {row['Invoice #']}", axis=1).tolist()
-                    inv_sel_display = st.selectbox("Seleccione la factura a descargar:", opciones_descarga)
+                    # Selector unificado
+                    df_fac['Label'] = df_fac['Tipo'] + " - " + df_fac['Invoice #'] + " | " + df_fac['Cliente']
+                    dic_map = dict(zip(df_fac['Label'], df_fac['id']))
                     
-                    if st.button("Obtener PDF"):
-                        tipo_busqueda, num_busqueda = inv_sel_display.split(" - ")
-                        cur = conn.cursor()
-                        cur.execute("SELECT pdf_file FROM facturas WHERE tipo_factura = %s AND invoice_num = %s", (tipo_busqueda, num_busqueda))
-                        pdf_data = cur.fetchone()
-                        if pdf_data and pdf_data[0]:
-                            st.download_button(f"⬇️ Descargar Invoice {num_busqueda}", data=pdf_data[0], file_name=f"Invoice_{tipo_busqueda}_{num_busqueda}.pdf", mime="application/pdf")
+                    inv_sel_display = st.selectbox("Seleccione la factura que desea gestionar:", df_fac['Label'].tolist())
+                    fac_id = dic_map[inv_sel_display]
+                    
+                    # Extraer datos específicos de la factura seleccionada
+                    cur = conn.cursor(dictionary=True)
+                    cur.execute("SELECT * FROM facturas WHERE id = %s", (fac_id,))
+                    fac_data = cur.fetchone()
+                    
+                    if fac_data:
+                        acc1, acc2, acc3 = st.columns(3)
+                        accion = st.radio("¿Qué desea hacer con esta factura?", ["⬇️ Descargar PDF", "✏️ Editar Valores", "🗑️ Eliminar Factura"], horizontal=True)
+                        
+                        # --- ACCIÓN: DESCARGAR ---
+                        if accion == "⬇️ Descargar PDF":
+                            if fac_data['pdf_file']:
+                                st.download_button(
+                                    label=f"Descargar Invoice {fac_data['invoice_num']}", 
+                                    data=fac_data['pdf_file'], 
+                                    file_name=f"Invoice_{fac_data['tipo_factura']}_{fac_data['invoice_num']}.pdf", 
+                                    mime="application/pdf",
+                                    type="primary"
+                                )
+                        
+                        # --- ACCIÓN: ELIMINAR ---
+                        elif accion == "🗑️ Eliminar Factura":
+                            st.warning(f"Está a punto de eliminar la factura {fac_data['tipo_factura']} - {fac_data['invoice_num']}. El correlativo quedará libre para ser usado nuevamente.")
+                            if st.button("🚨 Confirmar Eliminación", type="primary"):
+                                cur.execute("DELETE FROM facturas WHERE id = %s", (fac_id,))
+                                conn.commit()
+                                st.success("Factura eliminada. El número ha sido liberado.")
+                                st.rerun()
+                                
+                        # --- ACCIÓN: EDITAR ---
+                        elif accion == "✏️ Editar Valores":
+                            st.info("ℹ️ Al editar, los campos de montos están desbloqueados independientemente del tipo de factura.")
+                            
+                            e1, e2 = st.columns(2)
+                            with e1:
+                                edit_cliente = st.text_input("Cliente (Bill To)", value=fac_data['cliente'])
+                                edit_direccion = st.text_area("Dirección del Cliente", value=fac_data['direccion'])
+                            with e2:
+                                edit_concepto = st.text_input("Descripción del Servicio", value=fac_data['concepto'])
+                                edit_cant = st.number_input("Cantidad de Paquetes", value=int(fac_data['cantidad_paquetes']), step=1)
+                            
+                            st.write("**Montos:**")
+                            m1, m2, m3 = st.columns(3)
+                            edit_sub = m1.number_input("Subtotal", value=float(fac_data['subtotal']), step=0.01)
+                            edit_tax = m2.number_input("Tax Rate", value=float(fac_data['tax_rate']), step=0.01)
+                            edit_otros = m3.number_input("Other Costs", value=float(fac_data['other_costs']), step=0.01)
+                            
+                            nuevo_total = edit_sub + edit_tax + edit_otros
+                            st.write(f"**Nuevo Total Calculado:** ${nuevo_total:,.2f}")
+                            
+                            if st.button("💾 Guardar Cambios y Regenerar PDF", type="primary"):
+                                with st.spinner("Actualizando registro y PDF..."):
+                                    # Generar PDF nuevo con los datos editados
+                                    nuevo_pdf = generar_factura_pdf(
+                                        fac_data['tipo_factura'], fac_data['invoice_num'], fac_data['fecha'], 
+                                        edit_cliente, edit_direccion, edit_concepto, edit_cant, 
+                                        edit_sub, edit_tax, edit_otros, nuevo_total
+                                    )
+                                    
+                                    # Actualizar BD dejando huella de auditoría
+                                    update_sql = """
+                                        UPDATE facturas SET 
+                                            cliente=%s, direccion=%s, concepto=%s, cantidad_paquetes=%s, 
+                                            subtotal=%s, tax_rate=%s, other_costs=%s, total=%s, 
+                                            pdf_file=%s, is_modified=1, modified_by=%s 
+                                        WHERE id=%s
+                                    """
+                                    cur.execute(update_sql, (
+                                        edit_cliente, edit_direccion, edit_concepto, edit_cant, 
+                                        edit_sub, edit_tax, edit_otros, nuevo_total, 
+                                        nuevo_pdf, user_info['username'], fac_id
+                                    ))
+                                    conn.commit()
+                                    st.success("Factura actualizada exitosamente.")
+                                    st.rerun()
+
             finally:
                 conn.close()
