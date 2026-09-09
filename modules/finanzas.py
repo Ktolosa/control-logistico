@@ -14,7 +14,8 @@ def init_finanzas_db():
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS facturas (
                     id INT AUTO_INCREMENT PRIMARY KEY,
-                    invoice_num VARCHAR(20) UNIQUE NOT NULL,
+                    tipo_factura VARCHAR(50) NOT NULL,
+                    invoice_num VARCHAR(20) NOT NULL,
                     fecha DATETIME DEFAULT CURRENT_TIMESTAMP,
                     cliente VARCHAR(255),
                     direccion TEXT,
@@ -25,38 +26,46 @@ def init_finanzas_db():
                     other_costs DECIMAL(10,2),
                     total DECIMAL(10,2),
                     pdf_file LONGBLOB,
-                    created_by VARCHAR(100)
+                    created_by VARCHAR(100),
+                    UNIQUE KEY unique_tipo_inv (tipo_factura, invoice_num)
                 );
             """)
+            
+            try:
+                cur.execute("ALTER TABLE facturas ADD COLUMN tipo_factura VARCHAR(50) DEFAULT 'Funds' AFTER id;")
+                cur.execute("ALTER TABLE facturas DROP INDEX invoice_num;")
+                cur.execute("ALTER TABLE facturas ADD UNIQUE KEY unique_tipo_inv (tipo_factura, invoice_num);")
+            except:
+                pass 
+                
             conn.commit()
             conn.close()
-        except:
+        except Exception as e:
             if conn: conn.close()
 
-# --- 2. OBTENER SIGUIENTE CORRELATIVO ---
-def get_next_invoice_number():
+# --- 2. OBTENER SIGUIENTE CORRELATIVO POR TIPO ---
+def get_next_invoice_number(tipo_factura):
     conn = get_connection()
     if not conn: return "0001"
     try:
         cur = conn.cursor()
-        cur.execute("SELECT invoice_num FROM facturas ORDER BY id DESC LIMIT 1")
+        cur.execute("SELECT invoice_num FROM facturas WHERE tipo_factura = %s ORDER BY id DESC LIMIT 1", (tipo_factura,))
         res = cur.fetchone()
         conn.close()
         if res:
             last_num = int(res[0])
-            return f"{(last_num + 1):04d}" # Formato 0030, 0031, etc.
+            return f"{(last_num + 1):04d}" 
         return "0001"
     except:
         if conn: conn.close()
         return "0001"
 
-# --- 3. GENERAR PDF (DISEÑO IDÉNTICO A TU IMAGEN) ---
-def generar_factura_pdf(inv_num, fecha, cliente, direccion, concepto, cant_paq, subtotal, tax, otros, total):
+# --- 3. GENERAR PDF ---
+def generar_factura_pdf(tipo_factura, inv_num, fecha, cliente, direccion, concepto, cant_paq, subtotal, tax, otros, total):
     pdf = FPDF()
     pdf.add_page()
     
-    # --- Encabezado Azul ---
-    pdf.set_fill_color(22, 60, 115) # Azul oscuro Global Cargo
+    pdf.set_fill_color(22, 60, 115) 
     pdf.rect(0, 0, 210, 45, 'F')
     
     pdf.set_text_color(255, 255, 255)
@@ -68,7 +77,6 @@ def generar_factura_pdf(inv_num, fecha, cliente, direccion, concepto, cant_paq, 
     pdf.text(10, 30, "Calle Circunvalacion, Poligono D, Lote No. 7")
     pdf.text(10, 35, "Antiguo Cuscatlan, La Libertad El Salvador El Salvador")
     
-    # --- Metadatos (Invoice # y Fecha) ---
     pdf.set_text_color(22, 60, 115)
     pdf.set_font("Arial", 'B', 16)
     pdf.text(10, 60, f"INVOICE # {inv_num}")
@@ -78,7 +86,6 @@ def generar_factura_pdf(inv_num, fecha, cliente, direccion, concepto, cant_paq, 
     pdf.set_font("Arial", '', 12)
     pdf.text(150, 68, fecha.strftime("%d-%b-%Y"))
     
-    # --- Bill To ---
     pdf.set_text_color(22, 60, 115)
     pdf.set_font("Arial", 'B', 16)
     pdf.text(10, 85, "Bill To")
@@ -92,9 +99,8 @@ def generar_factura_pdf(inv_num, fecha, cliente, direccion, concepto, cant_paq, 
     pdf.multi_cell(100, 5, str(direccion))
     
     pdf.set_xy(149, 90)
-    pdf.cell(40, 5, "Funds")
+    pdf.cell(40, 5, str(tipo_factura))
     
-    # --- Tabla de Detalles ---
     pdf.set_y(120)
     pdf.set_fill_color(0, 51, 102)
     pdf.set_text_color(255, 255, 255)
@@ -107,34 +113,27 @@ def generar_factura_pdf(inv_num, fecha, cliente, direccion, concepto, cant_paq, 
     pdf.set_text_color(0, 0, 0)
     pdf.set_font("Arial", '', 10)
     
-    # Fila con datos
     desc_completa = f"{concepto} ({cant_paq}pq)"
     pdf.cell(140, 8, desc_completa, 1, 0, 'L', True)
     pdf.cell(50, 8, f"${total:,.2f}", 1, 1, 'C', True)
     
-    # Filas vacías para relleno estético
     for _ in range(4):
         pdf.cell(140, 8, "", 1, 0, 'L', False)
         pdf.cell(50, 8, "", 1, 1, 'C', False)
         
-    # --- Totales ---
     pdf.ln(10)
     pdf.set_x(100)
     pdf.set_font("Arial", '', 11)
     
-    # Subtotal
     pdf.cell(50, 8, "Subtotal", 0, 0, 'R')
     pdf.cell(50, 8, f"${subtotal:,.2f}", 1, 1, 'C')
-    # Tax Rate
     pdf.set_x(100)
     pdf.cell(50, 8, "Tax Rate", 0, 0, 'R')
     pdf.cell(50, 8, f"${tax:,.2f}", 1, 1, 'C')
-    # Other Costs
     pdf.set_x(100)
     pdf.cell(50, 8, "Other Costs", 0, 0, 'R')
     pdf.cell(50, 8, f"${otros:,.2f}", 1, 1, 'C')
     
-    # Total Cost
     pdf.set_x(100)
     pdf.set_fill_color(0, 51, 102)
     pdf.set_text_color(255, 255, 255)
@@ -144,7 +143,36 @@ def generar_factura_pdf(inv_num, fecha, cliente, direccion, concepto, cant_paq, 
     
     return pdf.output(dest='S').encode('latin-1')
 
-# --- 4. INTERFAZ GRÁFICA ---
+# --- 4. CONFIGURACIÓN DE TIPOS DE FACTURA ---
+# Aquí puedes editar los datos fijos para cada tipo de invoice
+CONFIG_TIPOS = {
+    "Funds": {
+        "cliente": "RADIANCE SEA HONG KONG LIMITED",
+        "direccion": "United 417,4/f Lippo Ctr Tower Two, No. 89 Queensway Admiralty, Hong Kong.",
+        "tax_rate": 0.00,
+        "other_costs": 0.00
+    },
+    "Logistics": {
+        "cliente": "LOGISTICS PARTNER S.A.",
+        "direccion": "Av. Logística 123, Ciudad de Prueba, El Salvador.",
+        "tax_rate": 0.00,
+        "other_costs": 15.50
+    },
+    "Customs": {
+        "cliente": "AGENCIA ADUANAL S.A. DE C.V.",
+        "direccion": "Aduana Marítima, Edificio 4, Acajutla.",
+        "tax_rate": 13.00,
+        "other_costs": 5.00
+    },
+    "Storage": {
+        "cliente": "ALMACENADORA GLOBAL",
+        "direccion": "Bodega 9, Zona Industrial Plan de la Laguna.",
+        "tax_rate": 0.00,
+        "other_costs": 0.00
+    }
+}
+
+# --- 5. INTERFAZ GRÁFICA ---
 def show(user_info):
     init_finanzas_db()
     st.title("💰 Finanzas y Facturación")
@@ -152,15 +180,23 @@ def show(user_info):
     t1, t2 = st.tabs(["Generar Nueva Factura", "Historial de Facturas"])
     
     with t1:
-        st.subheader("Detalles de la Factura")
+        st.subheader("Configuración y Detalles")
+        
+        c_tipo, c_blank = st.columns([1, 1])
+        lista_tipos = list(CONFIG_TIPOS.keys())
+        tipo_sel = c_tipo.selectbox("Tipo de Factura (Campo 'For'):", lista_tipos)
+        
+        # Extraer configuración del tipo seleccionado
+        cfg = CONFIG_TIPOS[tipo_sel]
         
         c1, c2 = st.columns(2)
-        inv_auto = get_next_invoice_number()
+        inv_auto = get_next_invoice_number(tipo_sel)
         
         with c1:
-            st.info(f"**Próximo Invoice #:** {inv_auto}")
-            cliente = st.text_input("Cliente (Bill To)", value="RADIANCE SEA HONG KONG LIMITED")
-            direccion = st.text_area("Dirección del Cliente", value="United 417,4/f Lippo Ctr Tower Two, No. 89 Queensway Admiralty, Hong Kong.")
+            st.info(f"**Próximo Invoice # para {tipo_sel}:** {inv_auto}")
+            # Campos bloqueados con disabled=True
+            cliente = st.text_input("Cliente (Bill To)", value=cfg["cliente"], disabled=True)
+            direccion = st.text_area("Dirección del Cliente", value=cfg["direccion"], disabled=True)
         
         with c2:
             st.write("Datos del Cobro")
@@ -170,9 +206,11 @@ def show(user_info):
         st.divider()
         st.subheader("Desglose Financiero")
         c3, c4, c5 = st.columns(3)
+        # Solo el subtotal es editable
         subtotal = c3.number_input("Subtotal ($)", min_value=0.0, step=0.01)
-        tax = c4.number_input("Tax Rate ($)", min_value=0.0, step=0.01)
-        otros = c5.number_input("Other Costs ($)", min_value=0.0, step=0.01)
+        # Tax y Other Costs bloqueados
+        tax = c4.number_input("Tax Rate ($)", value=cfg["tax_rate"], disabled=True)
+        otros = c5.number_input("Other Costs ($)", value=cfg["other_costs"], disabled=True)
         
         total_calc = subtotal + tax + otros
         st.markdown(f"### Total Calculado: <span style='color:green;'>${total_calc:,.2f}</span>", unsafe_allow_html=True)
@@ -183,20 +221,18 @@ def show(user_info):
             else:
                 with st.spinner("Generando PDF y guardando..."):
                     ahora = datetime.now()
-                    pdf_bytes = generar_factura_pdf(inv_auto, ahora, cliente, direccion, concepto, cant_paq, subtotal, tax, otros, total_calc)
+                    pdf_bytes = generar_factura_pdf(tipo_sel, inv_auto, ahora, cliente, direccion, concepto, cant_paq, subtotal, tax, otros, total_calc)
                     
-                    # Guardar en BD
                     conn = get_connection()
                     if conn:
                         try:
                             cur = conn.cursor()
-                            sql = """INSERT INTO facturas (invoice_num, fecha, cliente, direccion, concepto, cantidad_paquetes, subtotal, tax_rate, other_costs, total, pdf_file, created_by) 
-                                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
-                            cur.execute(sql, (inv_auto, ahora, cliente, direccion, concepto, cant_paq, subtotal, tax, otros, total_calc, pdf_bytes, user_info['username']))
+                            sql = """INSERT INTO facturas (tipo_factura, invoice_num, fecha, cliente, direccion, concepto, cantidad_paquetes, subtotal, tax_rate, other_costs, total, pdf_file, created_by) 
+                                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+                            cur.execute(sql, (tipo_sel, inv_auto, ahora, cliente, direccion, concepto, cant_paq, subtotal, tax, otros, total_calc, pdf_bytes, user_info['username']))
                             conn.commit()
-                            st.success(f"Factura #{inv_auto} generada exitosamente.")
-                            st.download_button("⬇️ Descargar PDF Ahora", data=pdf_bytes, file_name=f"Invoice_{inv_auto}.pdf", mime="application/pdf")
-                            # Refrescar para preparar la siguiente
+                            st.success(f"Factura #{inv_auto} ({tipo_sel}) generada exitosamente.")
+                            st.download_button("⬇️ Descargar PDF Ahora", data=pdf_bytes, file_name=f"Invoice_{tipo_sel}_{inv_auto}.pdf", mime="application/pdf")
                         except Exception as e:
                             st.error(f"Error al guardar en base de datos: {e}")
                         finally:
@@ -207,7 +243,7 @@ def show(user_info):
         conn = get_connection()
         if conn:
             try:
-                df_fac = pd.read_sql("SELECT id, invoice_num as 'Invoice #', fecha as 'Fecha', cliente as 'Cliente', cantidad_paquetes as 'Paquetes', total as 'Total ($)' FROM facturas ORDER BY id DESC", conn)
+                df_fac = pd.read_sql("SELECT id, tipo_factura as 'Tipo', invoice_num as 'Invoice #', fecha as 'Fecha', cliente as 'Cliente', cantidad_paquetes as 'Paquetes', total as 'Total ($)' FROM facturas ORDER BY id DESC", conn)
                 if df_fac.empty:
                     st.info("No hay facturas generadas aún.")
                 else:
@@ -215,13 +251,16 @@ def show(user_info):
                     
                     st.divider()
                     st.write("**Reimprimir Factura**")
-                    inv_sel = st.selectbox("Seleccione el Invoice a descargar:", df_fac['Invoice #'].tolist())
+                    
+                    opciones_descarga = df_fac.apply(lambda row: f"{row['Tipo']} - {row['Invoice #']}", axis=1).tolist()
+                    inv_sel_display = st.selectbox("Seleccione la factura a descargar:", opciones_descarga)
                     
                     if st.button("Obtener PDF"):
+                        tipo_busqueda, num_busqueda = inv_sel_display.split(" - ")
                         cur = conn.cursor()
-                        cur.execute("SELECT pdf_file FROM facturas WHERE invoice_num = %s", (inv_sel,))
+                        cur.execute("SELECT pdf_file FROM facturas WHERE tipo_factura = %s AND invoice_num = %s", (tipo_busqueda, num_busqueda))
                         pdf_data = cur.fetchone()
                         if pdf_data and pdf_data[0]:
-                            st.download_button(f"⬇️ Descargar Invoice {inv_sel}", data=pdf_data[0], file_name=f"Invoice_{inv_sel}.pdf", mime="application/pdf")
+                            st.download_button(f"⬇️ Descargar Invoice {num_busqueda}", data=pdf_data[0], file_name=f"Invoice_{tipo_busqueda}_{num_busqueda}.pdf", mime="application/pdf")
             finally:
                 conn.close()
