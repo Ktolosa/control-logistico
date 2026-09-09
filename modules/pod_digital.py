@@ -141,7 +141,7 @@ def show(user_info):
                 else: st.markdown(f"<div class='count-err'>❌ Dif: {len(lista_t) - paq_dec}</div>", unsafe_allow_html=True)
 
             st.write("Firma Responsable")
-            firm = st_canvas(stroke_width=2, height=150, key="firma_new")
+            firm = st_canvas(stroke_width=2, height=150, key="firma_new", return_image_data=True)
             
             if st.form_submit_button("💾 Guardar y Procesar", type="primary"):
                 if not rut or not unicos_t: st.error("Faltan datos (Ruta o Trackings)")
