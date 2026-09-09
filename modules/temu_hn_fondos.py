@@ -8,6 +8,7 @@ def init_fondos_db():
     if conn:
         try:
             cur = conn.cursor()
+            # Resumen global de fondos
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS temu_hn_resumen (
                     id INT PRIMARY KEY DEFAULT 1,
@@ -18,6 +19,7 @@ def init_fondos_db():
             """)
             cur.execute("INSERT IGNORE INTO temu_hn_resumen (id) VALUES (1);")
             
+            # Movimientos (Entradas y Salidas extras)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS temu_hn_movimientos (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -28,6 +30,7 @@ def init_fondos_db():
                 );
             """)
             
+            # Tabla de Impuestos por Máster (AHORA CON LONGBLOB PARA GUARDAR EL EXCEL)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS temu_hn_impuestos_master (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -44,6 +47,7 @@ def init_fondos_db():
                 );
             """)
             
+            # Script de seguridad: Añadir la columna de archivo a tablas existentes sin borrar datos
             try: cur.execute("ALTER TABLE temu_hn_impuestos_master ADD COLUMN archivo_excel LONGBLOB;")
             except: pass
             
@@ -56,11 +60,6 @@ def init_fondos_db():
 # --- 2. INTERFAZ GRÁFICA ---
 def show(user_info):
     init_fondos_db()
-    
-    # NUEVO: Inicializar la llave del uploader en la sesión
-    if 'uploader_key' not in st.session_state:
-        st.session_state['uploader_key'] = 1
-
     st.title("🇭🇳 Control de Fondos - TEMU HN")
     
     conn = get_connection()
@@ -100,14 +99,7 @@ def show(user_info):
             # --- LECTOR INTELIGENTE DE EXCEL ---
             with st.expander("📂 Cargar Impuestos de Másters (Excel)", expanded=True):
                 st.caption("Procesa los archivos de impuestos. El sistema convertirá HNL a USD automáticamente según la Tasa de Cambio.")
-                
-                # NUEVO: Usar la llave dinámica
-                archivos_excel = st.file_uploader(
-                    "Subir archivos (El nombre del archivo debe ser la Máster)", 
-                    type=["xlsx", "xls"], 
-                    accept_multiple_files=True,
-                    key=f"excel_uploader_{st.session_state['uploader_key']}"
-                )
+                archivos_excel = st.file_uploader("Subir archivos (El nombre del archivo debe ser la Máster)", type=["xlsx", "xls"], accept_multiple_files=True)
                 
                 if archivos_excel:
                     resultados = []
@@ -115,7 +107,9 @@ def show(user_info):
                     
                     for archivo in archivos_excel:
                         try:
+                            # Guardamos los bytes originales para meterlos a la BD después
                             file_bytes = archivo.getvalue()
+                            
                             df_imp = pd.read_excel(archivo)
                             master_num = archivo.name.replace(".xlsx", "").replace(".xls", "")
                             
@@ -172,10 +166,6 @@ def show(user_info):
                             if nuevos > 0:
                                 cur.execute("UPDATE temu_hn_resumen SET impuestos_pagados = impuestos_pagados + %s WHERE id = 1", (suma_real,))
                                 conn.commit()
-                                
-                                # NUEVO: Cambiamos la llave para vaciar el uploader
-                                st.session_state['uploader_key'] += 1 
-                                
                                 st.success("✅ Guardado exitosamente.")
                                 st.rerun()
 
@@ -186,6 +176,7 @@ def show(user_info):
                 
                 if historial_masters:
                     df_hist = pd.DataFrame(historial_masters)
+                    # Renombrar para visualización
                     df_view = df_hist.rename(columns={'master_num':'Máster', 'fecha_declaracion':'Fecha Decl.', 'cantidad_paquetes':'Paq.', 'total_impuestos_usd':'Total ($)', 'registrado_por':'Responsable'})
                     st.dataframe(df_view[['Máster', 'Fecha Decl.', 'Paq.', 'Total ($)', 'Responsable']], hide_index=True)
                     
@@ -193,6 +184,7 @@ def show(user_info):
                     st.write("**Opciones de Gestión**")
                     master_sel = st.selectbox("Seleccione la Máster:", df_hist['master_num'].tolist())
                     
+                    # Recuperar el ID y el Blob del archivo seleccionado
                     cur.execute("SELECT id, total_impuestos_usd, archivo_excel FROM temu_hn_impuestos_master WHERE master_num = %s", (master_sel,))
                     m_data = cur.fetchone()
                     
@@ -211,7 +203,9 @@ def show(user_info):
                         
                     if c2.button("🗑️ Eliminar y Revertir Balance", type="primary", use_container_width=True):
                         if m_data:
+                            # 1. Restarle los impuestos al Total Global
                             cur.execute("UPDATE temu_hn_resumen SET impuestos_pagados = impuestos_pagados - %s WHERE id = 1", (m_data['total_impuestos_usd'],))
+                            # 2. Borrar el registro
                             cur.execute("DELETE FROM temu_hn_impuestos_master WHERE id = %s", (m_data['id'],))
                             conn.commit()
                             st.success(f"La Máster {master_sel} ha sido eliminada y se restaron ${m_data['total_impuestos_usd']:,.2f} del total pagado.")
