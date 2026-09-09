@@ -30,7 +30,7 @@ def init_fondos_db():
                 );
             """)
             
-            # NUEVO: Tabla para guardar el desglose de Impuestos por Máster
+            # Tabla de Impuestos por Máster (AHORA CON LONGBLOB PARA GUARDAR EL EXCEL)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS temu_hn_impuestos_master (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -41,10 +41,16 @@ def init_fondos_db():
                     sel_usd DECIMAL(15,2),
                     iva_usd DECIMAL(15,2),
                     total_impuestos_usd DECIMAL(15,2),
+                    archivo_excel LONGBLOB,
                     fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP,
                     registrado_por VARCHAR(100)
                 );
             """)
+            
+            # Script de seguridad: Añadir la columna de archivo a tablas existentes sin borrar datos
+            try: cur.execute("ALTER TABLE temu_hn_impuestos_master ADD COLUMN archivo_excel LONGBLOB;")
+            except: pass
+            
             conn.commit()
         except Exception as e:
             pass
@@ -90,9 +96,9 @@ def show(user_info):
             ])
             st.dataframe(df_resumen, hide_index=True, use_container_width=True)
             
-            # --- LECTOR INTELIGENTE DE EXCEL (IMPUESTOS POR MÁSTER) ---
+            # --- LECTOR INTELIGENTE DE EXCEL ---
             with st.expander("📂 Cargar Impuestos de Másters (Excel)", expanded=True):
-                st.caption("Procesa los archivos de impuestos. El sistema convertirá HNL a USD automáticamente según la Tasa de Cambio declarada en el archivo.")
+                st.caption("Procesa los archivos de impuestos. El sistema convertirá HNL a USD automáticamente según la Tasa de Cambio.")
                 archivos_excel = st.file_uploader("Subir archivos (El nombre del archivo debe ser la Máster)", type=["xlsx", "xls"], accept_multiple_files=True)
                 
                 if archivos_excel:
@@ -101,83 +107,109 @@ def show(user_info):
                     
                     for archivo in archivos_excel:
                         try:
+                            # Guardamos los bytes originales para meterlos a la BD después
+                            file_bytes = archivo.getvalue()
+                            
                             df_imp = pd.read_excel(archivo)
                             master_num = archivo.name.replace(".xlsx", "").replace(".xls", "")
                             
-                            # Validar que tenga las columnas necesarias (hasta la S = índice 18)
                             if df_imp.shape[1] >= 19:
-                                # Convertir a numérico para evitar errores de texto
-                                df_imp.iloc[:, 7] = pd.to_numeric(df_imp.iloc[:, 7], errors='coerce').fillna(0) # H: Total Lempiras
-                                df_imp.iloc[:, 8] = pd.to_numeric(df_imp.iloc[:, 8], errors='coerce').fillna(0) # I: DAI
-                                df_imp.iloc[:, 9] = pd.to_numeric(df_imp.iloc[:, 9], errors='coerce').fillna(0) # J: SEL
-                                df_imp.iloc[:, 10] = pd.to_numeric(df_imp.iloc[:, 10], errors='coerce').fillna(0) # K: IVA
-                                df_imp.iloc[:, 18] = pd.to_numeric(df_imp.iloc[:, 18], errors='coerce').fillna(1) # S: Tasa Cambio
+                                df_imp.iloc[:, 7] = pd.to_numeric(df_imp.iloc[:, 7], errors='coerce').fillna(0)
+                                df_imp.iloc[:, 8] = pd.to_numeric(df_imp.iloc[:, 8], errors='coerce').fillna(0)
+                                df_imp.iloc[:, 9] = pd.to_numeric(df_imp.iloc[:, 9], errors='coerce').fillna(0)
+                                df_imp.iloc[:, 10] = pd.to_numeric(df_imp.iloc[:, 10], errors='coerce').fillna(0)
+                                df_imp.iloc[:, 18] = pd.to_numeric(df_imp.iloc[:, 18], errors='coerce').fillna(1)
                                 
-                                # Convertir Lempiras a Dólares por fila (Monto / Tasa de cambio)
                                 df_imp['DAI_USD'] = df_imp.iloc[:, 8] / df_imp.iloc[:, 18]
                                 df_imp['SEL_USD'] = df_imp.iloc[:, 9] / df_imp.iloc[:, 18]
                                 df_imp['IVA_USD'] = df_imp.iloc[:, 10] / df_imp.iloc[:, 18]
                                 df_imp['Total_USD'] = df_imp.iloc[:, 7] / df_imp.iloc[:, 18]
                                 
-                                dai_usd = df_imp['DAI_USD'].sum()
-                                sel_usd = df_imp['SEL_USD'].sum()
-                                iva_usd = df_imp['IVA_USD'].sum()
                                 tot_usd = df_imp['Total_USD'].sum()
-                                
-                                cant_paq = len(df_imp)
-                                fecha_dec = str(df_imp.iloc[0, 17]) if len(df_imp) > 0 else "N/A"
                                 
                                 resultados.append({
                                     'Máster': master_num,
-                                    'Fecha Decl.': fecha_dec,
-                                    'Paquetes': cant_paq,
-                                    'DAI ($)': dai_usd,
-                                    'SEL ($)': sel_usd,
-                                    'IVA ($)': iva_usd,
-                                    'Total Impuestos ($)': tot_usd
+                                    'Fecha Decl.': str(df_imp.iloc[0, 17]) if len(df_imp) > 0 else "N/A",
+                                    'Paquetes': len(df_imp),
+                                    'DAI ($)': df_imp['DAI_USD'].sum(),
+                                    'SEL ($)': df_imp['SEL_USD'].sum(),
+                                    'IVA ($)': df_imp['IVA_USD'].sum(),
+                                    'Total Impuestos ($)': tot_usd,
+                                    'Archivo_Bytes': file_bytes
                                 })
                                 total_calculado += tot_usd
                             else:
-                                st.error(f"El archivo {archivo.name} no tiene la estructura correcta de columnas.")
+                                st.error(f"El archivo {archivo.name} no tiene la estructura correcta.")
                         except Exception as e:
                             st.error(f"Error procesando {archivo.name}: {e}")
                     
                     if resultados:
-                        df_res_view = pd.DataFrame(resultados)
+                        df_res_view = pd.DataFrame(resultados).drop(columns=['Archivo_Bytes'])
                         st.write("**Resumen de archivos listos para procesar:**")
-                        # Formato de visualización de monedas
                         st.dataframe(df_res_view.style.format({"DAI ($)": "{:,.2f}", "SEL ($)": "{:,.2f}", "IVA ($)": "{:,.2f}", "Total Impuestos ($)": "{:,.2f}"}), hide_index=True)
-                        st.success(f"**Total calculado para sumar al balance: ${total_calculado:,.2f} USD**")
+                        st.success(f"**Total a sumar al balance: ${total_calculado:,.2f} USD**")
                         
                         if st.button("💾 Guardar Másters y Sumar a Impuestos", type="primary"):
-                            nuevos_ingresados = 0
-                            suma_real = 0.0
-                            
+                            nuevos = 0; suma_real = 0.0
                             for r in resultados:
-                                # Validación de seguridad: Evitar procesar la misma Máster 2 veces
                                 cur.execute("SELECT id FROM temu_hn_impuestos_master WHERE master_num = %s", (r['Máster'],))
                                 if cur.fetchone():
-                                    st.warning(f"⚠️ La Máster **{r['Máster']}** ya existe en la base de datos. Se omitió para evitar cobros dobles.")
+                                    st.warning(f"⚠️ La Máster **{r['Máster']}** ya existe. Se omitió.")
                                 else:
                                     sql_m = """INSERT INTO temu_hn_impuestos_master 
-                                               (master_num, fecha_declaracion, cantidad_paquetes, dai_usd, sel_usd, iva_usd, total_impuestos_usd, registrado_por) 
-                                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"""
-                                    cur.execute(sql_m, (r['Máster'], r['Fecha Decl.'], r['Paquetes'], r['DAI ($)'], r['SEL ($)'], r['IVA ($)'], r['Total Impuestos ($)'], user_info['username']))
+                                               (master_num, fecha_declaracion, cantidad_paquetes, dai_usd, sel_usd, iva_usd, total_impuestos_usd, archivo_excel, registrado_por) 
+                                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+                                    cur.execute(sql_m, (r['Máster'], r['Fecha Decl.'], r['Paquetes'], r['DAI ($)'], r['SEL ($)'], r['IVA ($)'], r['Total Impuestos ($)'], r['Archivo_Bytes'], user_info['username']))
                                     suma_real += r['Total Impuestos ($)']
-                                    nuevos_ingresados += 1
+                                    nuevos += 1
                                     
-                            if nuevos_ingresados > 0:
-                                # Actualizar el balance global automáticamente
+                            if nuevos > 0:
                                 cur.execute("UPDATE temu_hn_resumen SET impuestos_pagados = impuestos_pagados + %s WHERE id = 1", (suma_real,))
                                 conn.commit()
-                                st.success(f"✅ Se guardaron {nuevos_ingresados} másters exitosamente y se sumaron ${suma_real:,.2f} a los impuestos pagados.")
+                                st.success("✅ Guardado exitosamente.")
                                 st.rerun()
 
-            with st.expander("📜 Historial de Másters Procesadas"):
-                cur.execute("SELECT master_num as 'Máster', fecha_declaracion as 'Fecha Decl.', cantidad_paquetes as 'Paquetes', dai_usd as 'DAI ($)', iva_usd as 'IVA ($)', total_impuestos_usd as 'Total ($)', registrado_por as 'Responsable' FROM temu_hn_impuestos_master ORDER BY id DESC LIMIT 50")
+            # --- NUEVO GESTOR DE HISTORIAL Y ELIMINACIÓN ---
+            with st.expander("📜 Historial y Gestión de Másters", expanded=False):
+                cur.execute("SELECT id, master_num, fecha_declaracion, cantidad_paquetes, total_impuestos_usd, registrado_por FROM temu_hn_impuestos_master ORDER BY id DESC")
                 historial_masters = cur.fetchall()
+                
                 if historial_masters:
-                    st.dataframe(pd.DataFrame(historial_masters), hide_index=True, use_container_width=True)
+                    df_hist = pd.DataFrame(historial_masters)
+                    # Renombrar para visualización
+                    df_view = df_hist.rename(columns={'master_num':'Máster', 'fecha_declaracion':'Fecha Decl.', 'cantidad_paquetes':'Paq.', 'total_impuestos_usd':'Total ($)', 'registrado_por':'Responsable'})
+                    st.dataframe(df_view[['Máster', 'Fecha Decl.', 'Paq.', 'Total ($)', 'Responsable']], hide_index=True)
+                    
+                    st.divider()
+                    st.write("**Opciones de Gestión**")
+                    master_sel = st.selectbox("Seleccione la Máster:", df_hist['master_num'].tolist())
+                    
+                    # Recuperar el ID y el Blob del archivo seleccionado
+                    cur.execute("SELECT id, total_impuestos_usd, archivo_excel FROM temu_hn_impuestos_master WHERE master_num = %s", (master_sel,))
+                    m_data = cur.fetchone()
+                    
+                    c1, c2 = st.columns(2)
+                    
+                    if m_data and m_data['archivo_excel']:
+                        c1.download_button(
+                            label="⬇️ Descargar Excel Original", 
+                            data=m_data['archivo_excel'], 
+                            file_name=f"{master_sel}.xlsx", 
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
+                    else:
+                        c1.info("Sin archivo adjunto")
+                        
+                    if c2.button("🗑️ Eliminar y Revertir Balance", type="primary", use_container_width=True):
+                        if m_data:
+                            # 1. Restarle los impuestos al Total Global
+                            cur.execute("UPDATE temu_hn_resumen SET impuestos_pagados = impuestos_pagados - %s WHERE id = 1", (m_data['total_impuestos_usd'],))
+                            # 2. Borrar el registro
+                            cur.execute("DELETE FROM temu_hn_impuestos_master WHERE id = %s", (m_data['id'],))
+                            conn.commit()
+                            st.success(f"La Máster {master_sel} ha sido eliminada y se restaron ${m_data['total_impuestos_usd']:,.2f} del total pagado.")
+                            st.rerun()
                 else:
                     st.info("Aún no se han procesado másters.")
 
