@@ -8,7 +8,6 @@ def init_fondos_db():
     if conn:
         try:
             cur = conn.cursor()
-            # Resumen global
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS temu_hn_resumen (
                     id INT PRIMARY KEY DEFAULT 1,
@@ -19,7 +18,6 @@ def init_fondos_db():
             """)
             cur.execute("INSERT IGNORE INTO temu_hn_resumen (id) VALUES (1);")
             
-            # Movimientos operativos
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS temu_hn_movimientos (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -30,7 +28,6 @@ def init_fondos_db():
                 );
             """)
             
-            # Tabla de Impuestos por Máster
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS temu_hn_impuestos_master (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -46,17 +43,27 @@ def init_fondos_db():
                 );
             """)
             
-            # NUEVO: Tabla de Impuestos por Paquete (Tracking)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS temu_hn_impuestos_paquetes (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     master_num VARCHAR(100),
-                    tracking VARCHAR(100),
+                    tracking_a VARCHAR(100),
+                    tracking_b VARCHAR(100),
                     total_usd DECIMAL(10,2),
-                    INDEX idx_tracking (tracking),
+                    liquidado BOOLEAN DEFAULT FALSE,
+                    INDEX idx_tracking_a (tracking_a),
+                    INDEX idx_tracking_b (tracking_b),
                     INDEX idx_master (master_num)
                 );
             """)
+            
+            # Scripts de actualización silenciosa por si ya existían las tablas
+            try: cur.execute("ALTER TABLE temu_hn_impuestos_paquetes RENAME COLUMN tracking TO tracking_a;")
+            except: pass
+            try: cur.execute("ALTER TABLE temu_hn_impuestos_paquetes ADD COLUMN tracking_b VARCHAR(100) AFTER tracking_a;")
+            except: pass
+            try: cur.execute("ALTER TABLE temu_hn_impuestos_paquetes ADD COLUMN liquidado BOOLEAN DEFAULT FALSE;")
+            except: pass
             
             conn.commit()
         except Exception as e:
@@ -76,6 +83,7 @@ def show(user_info):
         
     try:
         cur = conn.cursor(dictionary=True)
+        # --- DATOS FINANCIEROS ---
         cur.execute("SELECT * FROM temu_hn_resumen WHERE id = 1")
         resumen = cur.fetchone()
         
@@ -86,7 +94,15 @@ def show(user_info):
         total_pagos = liquidado + deposito
         saldo_disponible = total_pagos - impuestos
 
-        # Dividimos la herramienta en dos pestañas principales
+        # --- DATOS DE PAQUETES ---
+        cur.execute("SELECT COUNT(*) as total FROM temu_hn_impuestos_paquetes")
+        tot_paq = cur.fetchone()['total'] or 0
+        
+        cur.execute("SELECT COUNT(*) as liquidados FROM temu_hn_impuestos_paquetes WHERE liquidado = TRUE")
+        tot_liq = cur.fetchone()['liquidados'] or 0
+        
+        tot_pend = tot_paq - tot_liq
+
         t1, t2 = st.tabs(["📊 Resumen y Másters", "📦 Liquidación por Paquetes"])
         
         # ==========================================
@@ -95,9 +111,9 @@ def show(user_info):
         with t1:
             col_izq, col_espacio, col_der = st.columns([5, 1, 5])
             
-            # --- COLUMNA DERECHA: RESUMEN GLOBAL Y LECTOR EXCEL ---
+            # --- COLUMNA DERECHA: RESUMEN GLOBAL ---
             with col_der:
-                st.write("### Resumen Global")
+                st.write("### Resumen Financiero")
                 
                 df_resumen = pd.DataFrame([
                     {"CONCEPTO": "Impuestos pagados", "MONTO": f"${impuestos:,.2f}"},
@@ -108,8 +124,15 @@ def show(user_info):
                 ])
                 st.dataframe(df_resumen, hide_index=True, use_container_width=True)
                 
+                # --- NUEVO: RESUMEN DE PAQUETES ---
+                st.write("### Estado de Paquetes")
+                cp1, cp2, cp3 = st.columns(3)
+                cp1.metric("Imp. Pagados", f"{tot_paq:,} pq", help="Total de paquetes registrados en la base de datos")
+                cp2.metric("Liquidados", f"{tot_liq:,} pq", help="Total de paquetes que ya te ha pagado TEMU")
+                cp3.metric("Pendientes", f"{tot_pend:,} pq", help="Paquetes por los que pagaste impuestos pero aún no te han liquidado")
+                st.divider()
+                
                 with st.expander("📂 Cargar Impuestos de Másters (Excel)", expanded=True):
-                    st.caption("Procesa los archivos. El sistema extraerá los montos y guardará el impuesto individual de cada paquete.")
                     archivos_excel = st.file_uploader("Subir archivos (El nombre del archivo debe ser la Máster)", type=["xlsx", "xls"], accept_multiple_files=True)
                     
                     if archivos_excel:
@@ -122,8 +145,8 @@ def show(user_info):
                                 master_num = archivo.name.replace(".xlsx", "").replace(".xls", "")
                                 
                                 if df_imp.shape[1] >= 19:
-                                    # Extraer Trackings (Columna A / Índice 0)
-                                    trackings_list = df_imp.iloc[:, 0].astype(str).tolist()
+                                    trackings_a = df_imp.iloc[:, 0].astype(str).str.strip().tolist()
+                                    trackings_b = df_imp.iloc[:, 1].astype(str).str.strip().tolist()
                                     
                                     df_imp.iloc[:, 7] = pd.to_numeric(df_imp.iloc[:, 7], errors='coerce').fillna(0)
                                     df_imp.iloc[:, 8] = pd.to_numeric(df_imp.iloc[:, 8], errors='coerce').fillna(0)
@@ -138,10 +161,10 @@ def show(user_info):
                                     
                                     tot_usd = df_imp['Total_USD'].sum()
                                     
-                                    # Emparejar cada tracking con su impuesto total
                                     paquetes_data = list(zip(
                                         [master_num] * len(df_imp),
-                                        trackings_list,
+                                        trackings_a,
+                                        trackings_b,
                                         df_imp['Total_USD'].tolist()
                                     ))
                                     
@@ -153,7 +176,7 @@ def show(user_info):
                                         'SEL ($)': df_imp['SEL_USD'].sum(),
                                         'IVA ($)': df_imp['IVA_USD'].sum(),
                                         'Total Impuestos ($)': tot_usd,
-                                        'paquetes_data': paquetes_data # Guardamos los datos de los paquetes
+                                        'paquetes_data': paquetes_data
                                     })
                                     total_calculado += tot_usd
                                 else:
@@ -174,14 +197,12 @@ def show(user_info):
                                     if cur.fetchone():
                                         st.warning(f"⚠️ La Máster **{r['Máster']}** ya existe. Se omitió.")
                                     else:
-                                        # 1. Guardar la Máster
                                         sql_m = """INSERT INTO temu_hn_impuestos_master 
                                                    (master_num, fecha_declaracion, cantidad_paquetes, dai_usd, sel_usd, iva_usd, total_impuestos_usd, registrado_por) 
                                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"""
                                         cur.execute(sql_m, (r['Máster'], r['Fecha Decl.'], r['Paquetes'], r['DAI ($)'], r['SEL ($)'], r['IVA ($)'], r['Total Impuestos ($)'], user_info['username']))
                                         
-                                        # 2. Guardar todos los paquetes individuales asociados
-                                        sql_p = "INSERT INTO temu_hn_impuestos_paquetes (master_num, tracking, total_usd) VALUES (%s, %s, %s)"
+                                        sql_p = "INSERT INTO temu_hn_impuestos_paquetes (master_num, tracking_a, tracking_b, total_usd) VALUES (%s, %s, %s, %s)"
                                         cur.executemany(sql_p, r['paquetes_data'])
                                         
                                         suma_real += r['Total Impuestos ($)']
@@ -216,14 +237,11 @@ def show(user_info):
                         
                         if st.button("🗑️ Eliminar Máster y Revertir Balance", type="primary"):
                             if m_data:
-                                # Restar globales
                                 cur.execute("UPDATE temu_hn_resumen SET impuestos_pagados = impuestos_pagados - %s WHERE id = 1", (m_data['total_impuestos_usd'],))
-                                # Borrar máster
                                 cur.execute("DELETE FROM temu_hn_impuestos_master WHERE id = %s", (m_data['id'],))
-                                # Borrar paquetes asociados a la máster
                                 cur.execute("DELETE FROM temu_hn_impuestos_paquetes WHERE master_num = %s", (master_sel,))
                                 conn.commit()
-                                st.success(f"Máster eliminada. Se restaron ${m_data['total_impuestos_usd']:,.2f} del total pagado y se borraron sus paquetes.")
+                                st.success(f"Máster eliminada. Se restaron ${m_data['total_impuestos_usd']:,.2f} y se borraron sus paquetes.")
                                 st.rerun()
                     else:
                         st.info("Aún no se han registrado másters.")
@@ -297,7 +315,7 @@ def show(user_info):
         # ==========================================
         with t2:
             st.write("### 🔍 Conciliación y Liquidación de Paquetes")
-            st.markdown("Pega la lista de Trackings que TEMU ha reportado como liquidados para saber exactamente cuánto dinero representa en impuestos.")
+            st.markdown("Pega la lista de Trackings que TEMU ha reportado como liquidados. Al guardarlos, se marcarán como **'Liquidados'** en el Resumen de Paquetes.")
             
             c_liq1, c_liq2 = st.columns([1, 1])
             
@@ -309,20 +327,27 @@ def show(user_info):
                         lista_raw = [x.strip() for x in txt_trackings.split('\n') if x.strip()]
                         lista_unicos = list(set(lista_raw))
                         
-                        with st.spinner("Buscando paquetes en la base de datos..."):
-                            # Buscar en lotes para evitar saturar la base de datos
+                        with st.spinner("Buscando paquetes en ambas columnas..."):
                             todos_los_datos = []
                             BATCH_SIZE = 1000 
                             for i in range(0, len(lista_unicos), BATCH_SIZE):
                                 lote = lista_unicos[i : i + BATCH_SIZE]
                                 format_strings = ','.join(['%s'] * len(lote))
-                                query = f"SELECT tracking, total_usd FROM temu_hn_impuestos_paquetes WHERE tracking IN ({format_strings})"
-                                cur.execute(query, tuple(lote))
+                                
+                                # AHORA TRAEMOS EL 'ID' PARA PODER MARCARLOS LUEGO
+                                query = f"""
+                                    SELECT id, master_num, tracking_a, tracking_b, total_usd, liquidado 
+                                    FROM temu_hn_impuestos_paquetes 
+                                    WHERE tracking_a IN ({format_strings}) OR tracking_b IN ({format_strings})
+                                """
+                                cur.execute(query, tuple(lote) + tuple(lote))
                                 todos_los_datos.extend(cur.fetchall())
                             
                             df_found = pd.DataFrame(todos_los_datos)
                             
                             if not df_found.empty:
+                                df_found = df_found.drop_duplicates(subset=['tracking_a', 'tracking_b'])
+                                
                                 total_liquidado = df_found['total_usd'].sum()
                                 encontrados = len(df_found)
                                 no_encontrados = len(lista_unicos) - encontrados
@@ -344,24 +369,45 @@ def show(user_info):
                     
                     m1, m2 = st.columns(2)
                     m1.metric("Paquetes Encontrados", st.session_state['liq_enc'])
-                    m2.metric("No Encontrados", st.session_state['liq_falt'])
+                    m2.metric("No Encontrados (Revisar)", st.session_state['liq_falt'])
                     
-                    st.dataframe(st.session_state['liq_df'].rename(columns={'tracking':'Tracking', 'total_usd':'Impuesto Pagado ($)'}), height=200, use_container_width=True)
+                    df_display = st.session_state['liq_df'].rename(columns={
+                        'master_num':'Máster', 
+                        'tracking_a':'Guía A', 
+                        'tracking_b':'Platform B', 
+                        'total_usd':'Impuesto Pagado ($)'
+                    })
+                    st.dataframe(df_display[['Máster', 'Guía A', 'Platform B', 'Impuesto Pagado ($)']], height=200, use_container_width=True)
                     
                     st.info(f"Liquidado actualmente: **${liquidado:,.2f}**")
                     accion_liq = st.radio("¿Qué desea hacer con este cálculo?", ["Sumarlo al 'Liquidado por TEMU' actual", "Reemplazar completamente el 'Liquidado por TEMU'"])
                     
-                    if st.button("💾 Aplicar Liquidación al Balance", type="primary"):
-                        nuevo_liquidado = (liquidado + st.session_state['liq_total']) if "Sumarlo" in accion_liq else st.session_state['liq_total']
+                    if st.button("💾 Aplicar Liquidación y Marcar Paquetes", type="primary"):
+                        # Extraer los IDs de los paquetes que acabamos de encontrar
+                        ids_paquetes = st.session_state['liq_df']['id'].tolist()
+                        
+                        if "Sumarlo" in accion_liq:
+                            nuevo_liquidado = liquidado + st.session_state['liq_total']
+                            # Marcar los paquetes específicos como liquidados
+                            if ids_paquetes:
+                                format_ids = ','.join(['%s'] * len(ids_paquetes))
+                                cur.execute(f"UPDATE temu_hn_impuestos_paquetes SET liquidado = TRUE WHERE id IN ({format_ids})", tuple(ids_paquetes))
+                        else:
+                            nuevo_liquidado = st.session_state['liq_total']
+                            # Si reemplaza el monto, reinicia todos los paquetes a FALSE primero
+                            cur.execute("UPDATE temu_hn_impuestos_paquetes SET liquidado = FALSE")
+                            # Y luego marca solo los actuales como TRUE
+                            if ids_paquetes:
+                                format_ids = ','.join(['%s'] * len(ids_paquetes))
+                                cur.execute(f"UPDATE temu_hn_impuestos_paquetes SET liquidado = TRUE WHERE id IN ({format_ids})", tuple(ids_paquetes))
                         
                         cur.execute("UPDATE temu_hn_resumen SET liquidado_temu = %s WHERE id = 1", (nuevo_liquidado,))
                         conn.commit()
                         
-                        # Limpiar caché de búsqueda
                         del st.session_state['liq_total']
                         del st.session_state['liq_df']
                         
-                        st.success("¡Balance global actualizado exitosamente!")
+                        st.success("¡Balance global y estado de paquetes actualizados exitosamente!")
                         st.rerun()
                 else:
                     st.info("Ingrese los trackings y presione 'Calcular' para ver los resultados aquí.")
@@ -369,9 +415,13 @@ def show(user_info):
             st.divider()
             st.write("### 📦 Visualizador General de Paquetes")
             st.caption("Últimos 100 paquetes registrados en la base de datos de impuestos.")
-            cur.execute("SELECT master_num as 'Máster', tracking as 'Tracking', total_usd as 'Impuesto USD ($)' FROM temu_hn_impuestos_paquetes ORDER BY id DESC LIMIT 100")
-            df_preview = pd.DataFrame(cur.fetchall())
-            if not df_preview.empty:
+            cur.execute("SELECT master_num as 'Máster', tracking_a as 'Guía (A)', tracking_b as 'Platform (B)', total_usd as 'Impuesto USD ($)', liquidado as '¿Liquidado?' FROM temu_hn_impuestos_paquetes ORDER BY id DESC LIMIT 100")
+            
+            datos_prev = cur.fetchall()
+            if datos_prev:
+                df_preview = pd.DataFrame(datos_prev)
+                # Formatear el boolean a texto amigable
+                df_preview['¿Liquidado?'] = df_preview['¿Liquidado?'].apply(lambda x: "✅ Sí" if x else "❌ No")
                 st.dataframe(df_preview, hide_index=True, use_container_width=True)
             else:
                 st.caption("No hay paquetes registrados.")
