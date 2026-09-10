@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 from utils import get_connection
 
 # --- 1. INICIALIZAR BASE DE DATOS ---
@@ -121,100 +122,145 @@ def show(user_info):
                 cp3.metric("Pendientes", f"{tot_pend:,} pq")
                 st.divider()
                 
+                # --- VISOR DE REPORTES DE CARGA ---
+                if 'upload_report' in st.session_state:
+                    report = st.session_state['upload_report']
+                    st.write("### 📋 Resultados de la última carga")
+                    
+                    if report['success_count'] > 0:
+                        st.success(f"✅ Se guardaron **{report['success_count']}** archivos exitosamente y se omitieron los que tenían problemas.")
+                    
+                    if report['errors']:
+                        st.error(f"❌ **{len(report['errors'])} archivos dieron error y NO fueron guardados:**")
+                        for arch, err in report['errors']:
+                            st.write(f"- 📄 `{arch}`: {err}")
+                            
+                    if report['warnings']:
+                        with st.expander(f"⚠️ {len(report['warnings'])} Advertencias / Omitidos", expanded=False):
+                            for adv in report['warnings']:
+                                st.write(f"- {adv}")
+                                
+                    if st.button("Cerrar Reporte"):
+                        del st.session_state['upload_report']
+                        st.rerun()
+                    st.divider()
+
                 with st.expander("📂 Cargar Impuestos de Másters (Excel)", expanded=True):
-                    st.warning("⚠️ Si vas a subir más de 50 archivos a la vez, por favor espera pacientemente a que la barra de carga termine.")
+                    st.warning("⚠️ Si vas a subir lotes grandes, espera pacientemente a que la barra de carga termine.")
                     archivos_excel = st.file_uploader("Subir archivos (El nombre del archivo debe ser la Máster)", type=["xlsx", "xls"], accept_multiple_files=True)
                     
                     if archivos_excel:
                         if st.button("🚀 Procesar todos los archivos", type="primary"):
                             resultados = []
-                            total_calculado = 0.0
+                            archivos_con_error = []
+                            archivos_con_advertencia = []
                             
-                            # BARRA DE PROGRESO PARA ARCHIVOS MASIVOS
                             barra_progreso = st.progress(0)
                             texto_estado = st.empty()
-                            
                             total_archivos = len(archivos_excel)
                             
+                            # 1. FASE DE LECTURA DE EXCEL (Aislada por archivo)
                             for idx, archivo in enumerate(archivos_excel):
-                                texto_estado.text(f"Procesando: {archivo.name} ({idx+1}/{total_archivos})")
+                                texto_estado.text(f"Leyendo Excel: {archivo.name} ({idx+1}/{total_archivos})")
                                 try:
-                                    # Leer excel de manera optimizada
                                     df_imp = pd.read_excel(archivo, usecols="A:S") 
                                     master_num = archivo.name.replace(".xlsx", "").replace(".xls", "")
                                     
                                     if df_imp.shape[1] >= 19:
-                                        trackings_a = df_imp.iloc[:, 0].astype(str).str.strip().tolist()
-                                        trackings_b = df_imp.iloc[:, 1].astype(str).str.strip().tolist()
+                                        # Detectar NaN en montos para advertir
+                                        montos_crudos = df_imp.iloc[:, [7, 8, 9, 10, 18]]
+                                        if montos_crudos.isna().any().any():
+                                            archivos_con_advertencia.append(f"**{archivo.name}**: Contenía celdas en blanco. Se forzaron a $0.00.")
+                                            
+                                        trackings_a = df_imp.iloc[:, 0].fillna("N/A").astype(str).str.strip().tolist()
+                                        trackings_b = df_imp.iloc[:, 1].fillna("N/A").astype(str).str.strip().tolist()
                                         
-                                        df_imp.iloc[:, 7] = pd.to_numeric(df_imp.iloc[:, 7], errors='coerce').fillna(0)
-                                        df_imp.iloc[:, 8] = pd.to_numeric(df_imp.iloc[:, 8], errors='coerce').fillna(0)
-                                        df_imp.iloc[:, 9] = pd.to_numeric(df_imp.iloc[:, 9], errors='coerce').fillna(0)
-                                        df_imp.iloc[:, 10] = pd.to_numeric(df_imp.iloc[:, 10], errors='coerce').fillna(0)
-                                        df_imp.iloc[:, 18] = pd.to_numeric(df_imp.iloc[:, 18], errors='coerce').fillna(1)
+                                        col_total = pd.to_numeric(df_imp.iloc[:, 7], errors='coerce').fillna(0.0)
+                                        col_dai = pd.to_numeric(df_imp.iloc[:, 8], errors='coerce').fillna(0.0)
+                                        col_sel = pd.to_numeric(df_imp.iloc[:, 9], errors='coerce').fillna(0.0)
+                                        col_iva = pd.to_numeric(df_imp.iloc[:, 10], errors='coerce').fillna(0.0)
                                         
-                                        df_imp['DAI_USD'] = df_imp.iloc[:, 8] / df_imp.iloc[:, 18]
-                                        df_imp['SEL_USD'] = df_imp.iloc[:, 9] / df_imp.iloc[:, 18]
-                                        df_imp['IVA_USD'] = df_imp.iloc[:, 10] / df_imp.iloc[:, 18]
-                                        df_imp['Total_USD'] = df_imp.iloc[:, 7] / df_imp.iloc[:, 18]
+                                        tasa_cambio = pd.to_numeric(df_imp.iloc[:, 18], errors='coerce').fillna(1.0).replace(0.0, 1.0)
                                         
-                                        tot_usd = df_imp['Total_USD'].sum()
+                                        df_imp['DAI_USD'] = (col_dai / tasa_cambio).fillna(0.0)
+                                        df_imp['SEL_USD'] = (col_sel / tasa_cambio).fillna(0.0)
+                                        df_imp['IVA_USD'] = (col_iva / tasa_cambio).fillna(0.0)
+                                        df_imp['Total_USD'] = (col_total / tasa_cambio).fillna(0.0)
+                                        
+                                        tot_usd = float(df_imp['Total_USD'].sum())
+                                        totales_lista = [float(x) for x in df_imp['Total_USD']]
                                         
                                         paquetes_data = list(zip(
-                                            [master_num] * len(df_imp), trackings_a, trackings_b, df_imp['Total_USD'].tolist()
+                                            [master_num] * len(df_imp), trackings_a, trackings_b, totales_lista
                                         ))
+                                        
+                                        fecha_bruta = df_imp.iloc[0, 17] if len(df_imp) > 0 else "N/A"
+                                        fecha_dec = str(fecha_bruta) if pd.notna(fecha_bruta) else "N/A"
                                         
                                         resultados.append({
                                             'Máster': master_num,
-                                            'Fecha Decl.': str(df_imp.iloc[0, 17]) if len(df_imp) > 0 else "N/A",
+                                            'Fecha Decl.': fecha_dec,
                                             'Paquetes': len(df_imp),
-                                            'DAI ($)': df_imp['DAI_USD'].sum(),
-                                            'SEL ($)': df_imp['SEL_USD'].sum(),
-                                            'IVA ($)': df_imp['IVA_USD'].sum(),
+                                            'DAI ($)': float(df_imp['DAI_USD'].sum()),
+                                            'SEL ($)': float(df_imp['SEL_USD'].sum()),
+                                            'IVA ($)': float(df_imp['IVA_USD'].sum()),
                                             'Total Impuestos ($)': tot_usd,
                                             'paquetes_data': paquetes_data
                                         })
-                                        total_calculado += tot_usd
                                     else:
-                                        st.error(f"El archivo {archivo.name} no tiene 19 columnas.")
+                                        archivos_con_error.append((archivo.name, "No tiene las 19 columnas de estructura requeridas."))
                                 except Exception as e:
-                                    st.error(f"Error procesando {archivo.name}: {e}")
+                                    archivos_con_error.append((archivo.name, f"Formato inválido o corrupto (Posible error de NaN o columnas faltantes)."))
                                 
-                                # Actualizar barra
                                 barra_progreso.progress((idx + 1) / total_archivos)
                                 
-                            texto_estado.text("¡Lectura finalizada! Guardando en base de datos...")
+                            texto_estado.text("¡Lectura finalizada! Guardando en base de datos de forma segura...")
+                            
+                            # 2. FASE DE GUARDADO EN BD (Aislada por Master)
+                            nuevos_guardados = 0
+                            suma_real = 0.0
                             
                             if resultados:
-                                nuevos = 0; suma_real = 0.0
                                 for r in resultados:
-                                    cur.execute("SELECT id FROM temu_hn_impuestos_master WHERE master_num = %s", (r['Máster'],))
-                                    if cur.fetchone():
-                                        st.warning(f"⚠️ La Máster **{r['Máster']}** ya existe. Se omitió.")
-                                    else:
-                                        sql_m = """INSERT INTO temu_hn_impuestos_master 
-                                                   (master_num, fecha_declaracion, cantidad_paquetes, dai_usd, sel_usd, iva_usd, total_impuestos_usd, registrado_por) 
-                                                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"""
-                                        cur.execute(sql_m, (r['Máster'], r['Fecha Decl.'], r['Paquetes'], r['DAI ($)'], r['SEL ($)'], r['IVA ($)'], r['Total Impuestos ($)'], user_info['username']))
+                                    try:
+                                        cur.execute("SELECT id FROM temu_hn_impuestos_master WHERE master_num = %s", (r['Máster'],))
+                                        if cur.fetchone():
+                                            archivos_con_advertencia.append(f"**{r['Máster']}**: Ya estaba registrado, se omitió para evitar duplicados.")
+                                        else:
+                                            # Insertar Master
+                                            sql_m = """INSERT INTO temu_hn_impuestos_master 
+                                                       (master_num, fecha_declaracion, cantidad_paquetes, dai_usd, sel_usd, iva_usd, total_impuestos_usd, registrado_por) 
+                                                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"""
+                                            cur.execute(sql_m, (r['Máster'], r['Fecha Decl.'], r['Paquetes'], r['DAI ($)'], r['SEL ($)'], r['IVA ($)'], r['Total Impuestos ($)'], user_info['username']))
+                                            
+                                            # Insertar Paquetes
+                                            sql_p = "INSERT INTO temu_hn_impuestos_paquetes (master_num, tracking_a, tracking_b, total_usd) VALUES (%s, %s, %s, %s)"
+                                            paquetes = r['paquetes_data']
+                                            chunk_sz = 5000
+                                            for i in range(0, len(paquetes), chunk_sz):
+                                                cur.executemany(sql_p, paquetes[i:i+chunk_sz])
+                                            
+                                            # Hacer COMMIT por cada archivo. Si uno falla, los anteriores ya están a salvo.
+                                            conn.commit()
+                                            
+                                            suma_real += r['Total Impuestos ($)']
+                                            nuevos_guardados += 1
+                                    except Exception as db_err:
+                                        conn.rollback() # Revierte SOLO el archivo que dio error
+                                        archivos_con_error.append((r['Máster'], f"Error de base de datos al guardar: {str(db_err)}"))
                                         
-                                        # Guardado masivo (Batch insert) para no colapsar TiDB
-                                        sql_p = "INSERT INTO temu_hn_impuestos_paquetes (master_num, tracking_a, tracking_b, total_usd) VALUES (%s, %s, %s, %s)"
-                                        # Hacemos chunks de 5000 para insertar rápido
-                                        paquetes = r['paquetes_data']
-                                        chunk_size = 5000
-                                        for i in range(0, len(paquetes), chunk_size):
-                                            cur.executemany(sql_p, paquetes[i:i+chunk_size])
-                                        
-                                        suma_real += r['Total Impuestos ($)']
-                                        nuevos += 1
-                                        
-                                if nuevos > 0:
+                                # 3. ACTUALIZAR RESUMEN GLOBAL FINAL
+                                if nuevos_guardados > 0:
                                     cur.execute("UPDATE temu_hn_resumen SET impuestos_pagados = impuestos_pagados + %s WHERE id = 1", (suma_real,))
                                     conn.commit()
-                                    st.success(f"✅ ¡Se guardaron {nuevos} archivos exitosamente! Recargando...")
-                                    st.rerun()
-                                else:
-                                    texto_estado.text("No se guardó ningún archivo nuevo.")
+                            
+                            # 4. GUARDAR REPORTE EN MEMORIA Y RECARGAR
+                            st.session_state['upload_report'] = {
+                                'success_count': nuevos_guardados,
+                                'errors': archivos_con_error,
+                                'warnings': archivos_con_advertencia
+                            }
+                            st.rerun()
 
                 with st.expander("📜 Historial de Másters Procesadas", expanded=False):
                     cur.execute("SELECT id, master_num, fecha_declaracion, cantidad_paquetes, dai_usd, sel_usd, iva_usd, total_impuestos_usd, registrado_por FROM temu_hn_impuestos_master ORDER BY id DESC")
@@ -399,7 +445,6 @@ def show(user_info):
                                 
                                 if "Sumarlo" in accion_liq:
                                     nuevo_liq = liquidado + st.session_state['liq_total']
-                                    # Insert batch
                                     chunk_sz = 2000
                                     for i in range(0, len(ids_paquetes), chunk_sz):
                                         lote_ids = ids_paquetes[i:i+chunk_sz]
@@ -461,5 +506,8 @@ def show(user_info):
             else:
                 st.caption("No hay paquetes registrados.")
 
+    except Exception as general_error:
+        st.error(f"Error general en el módulo: {general_error}")
     finally:
-        conn.close()
+        if 'conn' in locals() and conn:
+            conn.close()
