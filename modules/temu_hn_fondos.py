@@ -122,61 +122,70 @@ def show(user_info):
                 st.divider()
                 
                 with st.expander("📂 Cargar Impuestos de Másters (Excel)", expanded=True):
+                    st.warning("⚠️ Si vas a subir más de 50 archivos a la vez, por favor espera pacientemente a que la barra de carga termine.")
                     archivos_excel = st.file_uploader("Subir archivos (El nombre del archivo debe ser la Máster)", type=["xlsx", "xls"], accept_multiple_files=True)
                     
                     if archivos_excel:
-                        resultados = []
-                        total_calculado = 0.0
-                        
-                        for archivo in archivos_excel:
-                            try:
-                                df_imp = pd.read_excel(archivo)
-                                master_num = archivo.name.replace(".xlsx", "").replace(".xls", "")
-                                
-                                if df_imp.shape[1] >= 19:
-                                    trackings_a = df_imp.iloc[:, 0].astype(str).str.strip().tolist()
-                                    trackings_b = df_imp.iloc[:, 1].astype(str).str.strip().tolist()
-                                    
-                                    df_imp.iloc[:, 7] = pd.to_numeric(df_imp.iloc[:, 7], errors='coerce').fillna(0)
-                                    df_imp.iloc[:, 8] = pd.to_numeric(df_imp.iloc[:, 8], errors='coerce').fillna(0)
-                                    df_imp.iloc[:, 9] = pd.to_numeric(df_imp.iloc[:, 9], errors='coerce').fillna(0)
-                                    df_imp.iloc[:, 10] = pd.to_numeric(df_imp.iloc[:, 10], errors='coerce').fillna(0)
-                                    df_imp.iloc[:, 18] = pd.to_numeric(df_imp.iloc[:, 18], errors='coerce').fillna(1)
-                                    
-                                    df_imp['DAI_USD'] = df_imp.iloc[:, 8] / df_imp.iloc[:, 18]
-                                    df_imp['SEL_USD'] = df_imp.iloc[:, 9] / df_imp.iloc[:, 18]
-                                    df_imp['IVA_USD'] = df_imp.iloc[:, 10] / df_imp.iloc[:, 18]
-                                    df_imp['Total_USD'] = df_imp.iloc[:, 7] / df_imp.iloc[:, 18]
-                                    
-                                    tot_usd = df_imp['Total_USD'].sum()
-                                    
-                                    paquetes_data = list(zip(
-                                        [master_num] * len(df_imp), trackings_a, trackings_b, df_imp['Total_USD'].tolist()
-                                    ))
-                                    
-                                    resultados.append({
-                                        'Máster': master_num,
-                                        'Fecha Decl.': str(df_imp.iloc[0, 17]) if len(df_imp) > 0 else "N/A",
-                                        'Paquetes': len(df_imp),
-                                        'DAI ($)': df_imp['DAI_USD'].sum(),
-                                        'SEL ($)': df_imp['SEL_USD'].sum(),
-                                        'IVA ($)': df_imp['IVA_USD'].sum(),
-                                        'Total Impuestos ($)': tot_usd,
-                                        'paquetes_data': paquetes_data
-                                    })
-                                    total_calculado += tot_usd
-                                else:
-                                    st.error(f"El archivo {archivo.name} no tiene la estructura correcta.")
-                            except Exception as e:
-                                st.error(f"Error procesando {archivo.name}: {e}")
-                        
-                        if resultados:
-                            df_res_view = pd.DataFrame(resultados).drop(columns=['paquetes_data'])
-                            st.write("**Resumen de Másters listas para registrar:**")
-                            st.dataframe(df_res_view.style.format({"DAI ($)": "{:,.2f}", "SEL ($)": "{:,.2f}", "IVA ($)": "{:,.2f}", "Total Impuestos ($)": "{:,.2f}"}), hide_index=True)
-                            st.success(f"**Total a sumar al balance: ${total_calculado:,.2f} USD**")
+                        if st.button("🚀 Procesar todos los archivos", type="primary"):
+                            resultados = []
+                            total_calculado = 0.0
                             
-                            if st.button("💾 Guardar Datos, Paquetes y Sumar a Impuestos", type="primary"):
+                            # BARRA DE PROGRESO PARA ARCHIVOS MASIVOS
+                            barra_progreso = st.progress(0)
+                            texto_estado = st.empty()
+                            
+                            total_archivos = len(archivos_excel)
+                            
+                            for idx, archivo in enumerate(archivos_excel):
+                                texto_estado.text(f"Procesando: {archivo.name} ({idx+1}/{total_archivos})")
+                                try:
+                                    # Leer excel de manera optimizada
+                                    df_imp = pd.read_excel(archivo, usecols="A:S") 
+                                    master_num = archivo.name.replace(".xlsx", "").replace(".xls", "")
+                                    
+                                    if df_imp.shape[1] >= 19:
+                                        trackings_a = df_imp.iloc[:, 0].astype(str).str.strip().tolist()
+                                        trackings_b = df_imp.iloc[:, 1].astype(str).str.strip().tolist()
+                                        
+                                        df_imp.iloc[:, 7] = pd.to_numeric(df_imp.iloc[:, 7], errors='coerce').fillna(0)
+                                        df_imp.iloc[:, 8] = pd.to_numeric(df_imp.iloc[:, 8], errors='coerce').fillna(0)
+                                        df_imp.iloc[:, 9] = pd.to_numeric(df_imp.iloc[:, 9], errors='coerce').fillna(0)
+                                        df_imp.iloc[:, 10] = pd.to_numeric(df_imp.iloc[:, 10], errors='coerce').fillna(0)
+                                        df_imp.iloc[:, 18] = pd.to_numeric(df_imp.iloc[:, 18], errors='coerce').fillna(1)
+                                        
+                                        df_imp['DAI_USD'] = df_imp.iloc[:, 8] / df_imp.iloc[:, 18]
+                                        df_imp['SEL_USD'] = df_imp.iloc[:, 9] / df_imp.iloc[:, 18]
+                                        df_imp['IVA_USD'] = df_imp.iloc[:, 10] / df_imp.iloc[:, 18]
+                                        df_imp['Total_USD'] = df_imp.iloc[:, 7] / df_imp.iloc[:, 18]
+                                        
+                                        tot_usd = df_imp['Total_USD'].sum()
+                                        
+                                        paquetes_data = list(zip(
+                                            [master_num] * len(df_imp), trackings_a, trackings_b, df_imp['Total_USD'].tolist()
+                                        ))
+                                        
+                                        resultados.append({
+                                            'Máster': master_num,
+                                            'Fecha Decl.': str(df_imp.iloc[0, 17]) if len(df_imp) > 0 else "N/A",
+                                            'Paquetes': len(df_imp),
+                                            'DAI ($)': df_imp['DAI_USD'].sum(),
+                                            'SEL ($)': df_imp['SEL_USD'].sum(),
+                                            'IVA ($)': df_imp['IVA_USD'].sum(),
+                                            'Total Impuestos ($)': tot_usd,
+                                            'paquetes_data': paquetes_data
+                                        })
+                                        total_calculado += tot_usd
+                                    else:
+                                        st.error(f"El archivo {archivo.name} no tiene 19 columnas.")
+                                except Exception as e:
+                                    st.error(f"Error procesando {archivo.name}: {e}")
+                                
+                                # Actualizar barra
+                                barra_progreso.progress((idx + 1) / total_archivos)
+                                
+                            texto_estado.text("¡Lectura finalizada! Guardando en base de datos...")
+                            
+                            if resultados:
                                 nuevos = 0; suma_real = 0.0
                                 for r in resultados:
                                     cur.execute("SELECT id FROM temu_hn_impuestos_master WHERE master_num = %s", (r['Máster'],))
@@ -188,8 +197,13 @@ def show(user_info):
                                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"""
                                         cur.execute(sql_m, (r['Máster'], r['Fecha Decl.'], r['Paquetes'], r['DAI ($)'], r['SEL ($)'], r['IVA ($)'], r['Total Impuestos ($)'], user_info['username']))
                                         
+                                        # Guardado masivo (Batch insert) para no colapsar TiDB
                                         sql_p = "INSERT INTO temu_hn_impuestos_paquetes (master_num, tracking_a, tracking_b, total_usd) VALUES (%s, %s, %s, %s)"
-                                        cur.executemany(sql_p, r['paquetes_data'])
+                                        # Hacemos chunks de 5000 para insertar rápido
+                                        paquetes = r['paquetes_data']
+                                        chunk_size = 5000
+                                        for i in range(0, len(paquetes), chunk_size):
+                                            cur.executemany(sql_p, paquetes[i:i+chunk_size])
                                         
                                         suma_real += r['Total Impuestos ($)']
                                         nuevos += 1
@@ -197,8 +211,10 @@ def show(user_info):
                                 if nuevos > 0:
                                     cur.execute("UPDATE temu_hn_resumen SET impuestos_pagados = impuestos_pagados + %s WHERE id = 1", (suma_real,))
                                     conn.commit()
-                                    st.success("✅ Datos guardados exitosamente.")
+                                    st.success(f"✅ ¡Se guardaron {nuevos} archivos exitosamente! Recargando...")
                                     st.rerun()
+                                else:
+                                    texto_estado.text("No se guardó ningún archivo nuevo.")
 
                 with st.expander("📜 Historial de Másters Procesadas", expanded=False):
                     cur.execute("SELECT id, master_num, fecha_declaracion, cantidad_paquetes, dai_usd, sel_usd, iva_usd, total_impuestos_usd, registrado_por FROM temu_hn_impuestos_master ORDER BY id DESC")
@@ -302,7 +318,6 @@ def show(user_info):
             c_liq1, c_liq2 = st.columns([1, 1])
             
             with c_liq1:
-                # NUEVO: Selector de acción (Liquidar vs Deshacer)
                 operacion = st.radio("Acción a realizar:", ["✅ Liquidar Paquetes (Sumar al fondo)", "⏪ Revertir Liquidación (Restar del fondo)"])
                 
                 st.markdown("Pega la lista de Trackings a procesar. El sistema buscará en la Columna A o B.")
@@ -333,13 +348,12 @@ def show(user_info):
                             if not df_found.empty:
                                 df_found = df_found.drop_duplicates(subset=['tracking_a', 'tracking_b'])
                                 
-                                # NUEVO: Separar los válidos dependiendo de la operación elegida
                                 if "Liquidar" in operacion:
-                                    df_validos = df_found[df_found['liquidado'] == False] # Queremos cobrar los pendientes
-                                    df_omitidos = df_found[df_found['liquidado'] == True] # Ya los cobramos antes
+                                    df_validos = df_found[df_found['liquidado'] == False] 
+                                    df_omitidos = df_found[df_found['liquidado'] == True] 
                                 else:
-                                    df_validos = df_found[df_found['liquidado'] == True]  # Queremos revertir los que ya cobramos
-                                    df_omitidos = df_found[df_found['liquidado'] == False]# No se pueden revertir si están pendientes
+                                    df_validos = df_found[df_found['liquidado'] == True]  
+                                    df_omitidos = df_found[df_found['liquidado'] == False]
                                 
                                 total_operacion = float(df_validos['total_usd'].sum()) if not df_validos.empty else 0.0
                                 
@@ -376,10 +390,8 @@ def show(user_info):
                     
                     st.info(f"Fondo 'Liquidado por TEMU' actual: **${liquidado:,.2f}**")
                     
-                    # LOGICA DE APLICACIÓN
                     if not st.session_state['liq_df_validos'].empty:
                         ids_paquetes = st.session_state['liq_df_validos']['id'].tolist()
-                        format_ids = ','.join(['%s'] * len(ids_paquetes))
                         
                         if "Liquidar" in st.session_state['liq_op']:
                             accion_liq = st.radio("Método de aplicación:", ["Sumarlo al balance actual", "Reemplazar balance completamente"])
@@ -387,11 +399,20 @@ def show(user_info):
                                 
                                 if "Sumarlo" in accion_liq:
                                     nuevo_liq = liquidado + st.session_state['liq_total']
-                                    cur.execute(f"UPDATE temu_hn_impuestos_paquetes SET liquidado = TRUE WHERE id IN ({format_ids})", tuple(ids_paquetes))
+                                    # Insert batch
+                                    chunk_sz = 2000
+                                    for i in range(0, len(ids_paquetes), chunk_sz):
+                                        lote_ids = ids_paquetes[i:i+chunk_sz]
+                                        format_ids = ','.join(['%s'] * len(lote_ids))
+                                        cur.execute(f"UPDATE temu_hn_impuestos_paquetes SET liquidado = TRUE WHERE id IN ({format_ids})", tuple(lote_ids))
                                 else:
                                     nuevo_liq = st.session_state['liq_total']
-                                    cur.execute("UPDATE temu_hn_impuestos_paquetes SET liquidado = FALSE") # Limpia todo
-                                    cur.execute(f"UPDATE temu_hn_impuestos_paquetes SET liquidado = TRUE WHERE id IN ({format_ids})", tuple(ids_paquetes))
+                                    cur.execute("UPDATE temu_hn_impuestos_paquetes SET liquidado = FALSE") 
+                                    chunk_sz = 2000
+                                    for i in range(0, len(ids_paquetes), chunk_sz):
+                                        lote_ids = ids_paquetes[i:i+chunk_sz]
+                                        format_ids = ','.join(['%s'] * len(lote_ids))
+                                        cur.execute(f"UPDATE temu_hn_impuestos_paquetes SET liquidado = TRUE WHERE id IN ({format_ids})", tuple(lote_ids))
                                 
                                 cur.execute("UPDATE temu_hn_resumen SET liquidado_temu = %s WHERE id = 1", (nuevo_liq,))
                                 conn.commit()
@@ -400,11 +421,16 @@ def show(user_info):
                                 st.success("¡Balance actualizado y paquetes marcados como Liquidados!")
                                 st.rerun()
                                 
-                        else: # Es una Reversión
+                        else: 
                             if st.button("⚠️ Confirmar Reversión (Restar dinero y volver a Pendientes)", type="primary"):
-                                nuevo_liq = max(0, liquidado - st.session_state['liq_total']) # Evita que baje de cero
+                                nuevo_liq = max(0, liquidado - st.session_state['liq_total']) 
                                 
-                                cur.execute(f"UPDATE temu_hn_impuestos_paquetes SET liquidado = FALSE WHERE id IN ({format_ids})", tuple(ids_paquetes))
+                                chunk_sz = 2000
+                                for i in range(0, len(ids_paquetes), chunk_sz):
+                                    lote_ids = ids_paquetes[i:i+chunk_sz]
+                                    format_ids = ','.join(['%s'] * len(lote_ids))
+                                    cur.execute(f"UPDATE temu_hn_impuestos_paquetes SET liquidado = FALSE WHERE id IN ({format_ids})", tuple(lote_ids))
+                                
                                 cur.execute("UPDATE temu_hn_resumen SET liquidado_temu = %s WHERE id = 1", (nuevo_liq,))
                                 conn.commit()
                                 
@@ -415,7 +441,6 @@ def show(user_info):
                     st.info("Ingrese los trackings y presione 'Calcular' para ver los resultados aquí.")
             
             st.divider()
-            # NUEVO: Botón de Limpieza Global en caso de emergencia
             with st.expander("🚨 Opciones Avanzadas (Limpieza General)", expanded=False):
                 st.warning("Si tus balances están descuadrados o quieres volver a hacer tu liquidación desde cero, utiliza este botón. **OJO: Esto no borra tus archivos Másters**, solo reinicia a cero el fondo 'Liquidado por TEMU' y vuelve todos los paquetes al estado 'Pendientes'.")
                 if st.button("Limpiar TODAS las Liquidaciones (Reset a Cero)"):
