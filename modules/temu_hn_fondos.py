@@ -186,24 +186,26 @@ def show(user_info):
                                     master_num = archivo.name.replace(".xlsx", "").replace(".xls", "")
                                     
                                     if df_imp.shape[1] >= 19:
-                                        montos_crudos = df_imp.iloc[:, [7, 8, 9, 10, 18]]
-                                        if montos_crudos.isna().any().any():
-                                            archivos_con_advertencia.append(f"**{archivo.name}**: Contenía celdas en blanco. Se forzaron a $0.00.")
+                                        
+                                        # 1. VALIDACIÓN ESTRICTA ANTI-NaN: Intentar convertir a números. Si hay celdas vacías o texto inválido, genera NaNs.
+                                        col_total = pd.to_numeric(df_imp.iloc[:, 7], errors='coerce')
+                                        col_dai = pd.to_numeric(df_imp.iloc[:, 8], errors='coerce')
+                                        col_sel = pd.to_numeric(df_imp.iloc[:, 9], errors='coerce')
+                                        col_iva = pd.to_numeric(df_imp.iloc[:, 10], errors='coerce')
+                                        tasa_cambio = pd.to_numeric(df_imp.iloc[:, 18], errors='coerce')
+                                        
+                                        # Si alguna de las columnas clave tiene NaN (celdas vacías), rechazamos el archivo por completo.
+                                        if col_total.isna().any() or col_dai.isna().any() or col_sel.isna().any() or col_iva.isna().any() or tasa_cambio.isna().any() or (tasa_cambio == 0).any():
+                                            archivos_con_error.append((archivo.name, "Rechazado: Contiene celdas vacías, texto inválido o tasas en cero en la zona de impuestos."))
+                                            continue # <--- ESTO OMITE EL ARCHIVO Y SALTA AL SIGUIENTE
                                             
                                         trackings_a = df_imp.iloc[:, 0].fillna("N/A").astype(str).str.strip().tolist()
                                         trackings_b = df_imp.iloc[:, 1].fillna("N/A").astype(str).str.strip().tolist()
                                         
-                                        col_total = pd.to_numeric(df_imp.iloc[:, 7], errors='coerce').fillna(0.0)
-                                        col_dai = pd.to_numeric(df_imp.iloc[:, 8], errors='coerce').fillna(0.0)
-                                        col_sel = pd.to_numeric(df_imp.iloc[:, 9], errors='coerce').fillna(0.0)
-                                        col_iva = pd.to_numeric(df_imp.iloc[:, 10], errors='coerce').fillna(0.0)
-                                        
-                                        tasa_cambio = pd.to_numeric(df_imp.iloc[:, 18], errors='coerce').fillna(1.0).replace(0.0, 1.0)
-                                        
-                                        df_imp['DAI_USD'] = (col_dai / tasa_cambio).fillna(0.0)
-                                        df_imp['SEL_USD'] = (col_sel / tasa_cambio).fillna(0.0)
-                                        df_imp['IVA_USD'] = (col_iva / tasa_cambio).fillna(0.0)
-                                        df_imp['Total_USD'] = (col_total / tasa_cambio).fillna(0.0)
+                                        df_imp['DAI_USD'] = col_dai / tasa_cambio
+                                        df_imp['SEL_USD'] = col_sel / tasa_cambio
+                                        df_imp['IVA_USD'] = col_iva / tasa_cambio
+                                        df_imp['Total_USD'] = col_total / tasa_cambio
                                         
                                         tot_usd = float(df_imp['Total_USD'].sum())
                                         totales_lista = [float(x) for x in df_imp['Total_USD']]
@@ -215,6 +217,7 @@ def show(user_info):
                                         fecha_bruta = df_imp.iloc[0, 17] if len(df_imp) > 0 else "N/A"
                                         fecha_dec = str(fecha_bruta) if pd.notna(fecha_bruta) else "N/A"
                                         
+                                        # Si pasó la validación, lo agregamos a la lista de "buenos"
                                         resultados.append({
                                             'Máster': master_num,
                                             'Fecha Decl.': fecha_dec,
@@ -226,9 +229,9 @@ def show(user_info):
                                             'paquetes_data': paquetes_data
                                         })
                                     else:
-                                        archivos_con_error.append((archivo.name, "No tiene las 19 columnas de estructura requeridas."))
+                                        archivos_con_error.append((archivo.name, "Rechazado: No tiene las 19 columnas requeridas."))
                                 except Exception as e:
-                                    archivos_con_error.append((archivo.name, f"Datos corruptos o formato inválido."))
+                                    archivos_con_error.append((archivo.name, f"Rechazado: Archivo corrupto o no se pudo leer."))
                                     continue 
                                 
                                 barra_progreso.progress((idx + 1) / total_archivos)
@@ -243,6 +246,7 @@ def show(user_info):
                                     try:
                                         cur.execute("SELECT id FROM temu_hn_impuestos_master WHERE master_num = %s", (r['Máster'],))
                                         if cur.fetchone():
+                                            # Esto sí es una advertencia, porque el archivo estaba bueno pero ya lo habías subido antes.
                                             archivos_con_advertencia.append(f"**{r['Máster']}**: Ya estaba registrado, omitido para no duplicar.")
                                         else:
                                             sql_m = """INSERT INTO temu_hn_impuestos_master 
@@ -275,7 +279,7 @@ def show(user_info):
                             st.rerun()
 
                 with st.expander("📜 Historial de Másters Procesadas", expanded=False):
-                    cur.execute("SELECT id, master_num, fecha_declaracion, cantidad_paquetes, total_impuestos_usd, registrado_por FROM temu_hn_impuestos_master ORDER BY id DESC")
+                    cur.execute("SELECT id, master_num, fecha_declaracion, cantidad_paquetes, total_impuestos_usd, registrado_por FROM temu_hn_impuestos_master ORDER BY id DESC LIMIT 50")
                     historial_masters = cur.fetchall()
                     if historial_masters:
                         df_hist = pd.DataFrame(historial_masters)
@@ -298,14 +302,11 @@ def show(user_info):
                                 st.rerun()
                                 
                         if btn_c2.button("🚨 Eliminar TODAS las Másters", type="primary"):
-                            # Calcular el total para revertir del balance global
                             cur.execute("SELECT SUM(total_impuestos_usd) as total_sum FROM temu_hn_impuestos_master")
                             sum_res = cur.fetchone()
                             total_a_restar = float(sum_res['total_sum']) if sum_res and sum_res['total_sum'] else 0.0
                             
-                            # Restar del resumen
                             cur.execute("UPDATE temu_hn_resumen SET impuestos_pagados = impuestos_pagados - %s WHERE id = 1", (total_a_restar,))
-                            # Borrar tablas (Protegiendo los FALTANTES de liquidación)
                             cur.execute("DELETE FROM temu_hn_impuestos_master")
                             cur.execute("DELETE FROM temu_hn_impuestos_paquetes WHERE master_num != 'FALTANTE'")
                             conn.commit()
@@ -361,7 +362,7 @@ def show(user_info):
         # ==========================================
         with t2:
             st.write("### 🧾 Registrar Nueva Liquidación (Invoice)")
-            st.markdown("Registra los datos exactos del reporte de pago de TEMU para cruzar la información.")
+            st.markdown("Registra los datos de TEMU para cruzar la información y calcular el ajuste financiero.")
             
             c_liq1, c_liq2 = st.columns([1, 1])
             
@@ -389,7 +390,7 @@ def show(user_info):
                             lista_raw = [x.strip() for x in trackings_txt.split('\n') if x.strip()]
                             lista_unicos = list(set(lista_raw))
                             
-                            with st.spinner("Conciliando con la base de datos de aduanas..."):
+                            with st.spinner("Conciliando y calculando prorrateo..."):
                                 todos_los_datos = []
                                 BATCH_SIZE = 1000 
                                 for i in range(0, len(lista_unicos), BATCH_SIZE):
@@ -406,6 +407,7 @@ def show(user_info):
                                 
                                 df_found = pd.DataFrame(todos_los_datos)
                                 encontrados = 0
+                                total_impuestos_db = 0.0
                                 faltantes_list = lista_unicos.copy()
                                 ids_encontrados = []
                                 
@@ -413,11 +415,16 @@ def show(user_info):
                                     df_found = df_found.drop_duplicates(subset=['tracking_a', 'tracking_b'])
                                     encontrados = len(df_found)
                                     ids_encontrados = df_found['id'].tolist()
+                                    total_impuestos_db = float(df_found['total_usd'].sum())
                                     
                                     found_trackings = set(df_found['tracking_a'].tolist() + df_found['tracking_b'].tolist())
                                     faltantes_list = [t for t in lista_unicos if t not in found_trackings]
                                 
                                 faltantes = len(faltantes_list)
+                                
+                                # --- LÓGICA DE PRORRATEO Y DIFERENCIAL ---
+                                diferencia = monto_liq - total_impuestos_db
+                                ajuste_por_paquete = diferencia / paq_liq if paq_liq > 0 else 0.0
                                 
                                 st.session_state['liq_preview'] = {
                                     'inv_num': inv_num,
@@ -427,7 +434,10 @@ def show(user_info):
                                     'encontrados': encontrados,
                                     'faltantes': faltantes,
                                     'faltantes_list': faltantes_list,
-                                    'ids_encontrados': ids_encontrados
+                                    'ids_encontrados': ids_encontrados,
+                                    'total_impuestos_db': total_impuestos_db,
+                                    'diferencia': diferencia,
+                                    'ajuste_por_paquete': ajuste_por_paquete
                                 }
             
             with c_liq2:
@@ -435,18 +445,34 @@ def show(user_info):
                     prev = st.session_state['liq_preview']
                     st.write(f"### 📋 Previsualización: {prev['inv_num']}")
                     
-                    st.write(f"- **Monto a sumar a Liquidado por TEMU:** ${prev['monto_liq']:,.2f}")
+                    # COMPARATIVA FINANCIERA
+                    f1, f2, f3 = st.columns(3)
+                    f1.metric("Aduana (Lo que tú pagaste)", f"${prev['total_impuestos_db']:,.2f}")
+                    f2.metric("TEMU (Lo que te deposita)", f"${prev['monto_liq']:,.2f}")
                     
+                    # Color del delta según si es ganancia o pérdida
+                    diff_color = "normal" if prev['diferencia'] >= 0 else "inverse"
+                    f3.metric("Diferencial Global", f"${prev['diferencia']:,.2f}", delta=f"${prev['diferencia']:,.2f}", delta_color=diff_color)
+                    
+                    if prev['diferencia'] > 0.01:
+                        st.success(f"📈 **TEMU está pagando de MÁS.** \nTienes un ajuste a favor prorrateado de **+${prev['ajuste_por_paquete']:,.4f}** por paquete.")
+                    elif prev['diferencia'] < -0.01:
+                        st.error(f"📉 **TEMU está pagando de MENOS.** \nTienes una pérdida prorrateada de **${prev['ajuste_por_paquete']:,.4f}** por paquete.")
+                    else:
+                        st.info("⚖️ **Conciliación Exacta.** \nTEMU pagó exactamente lo mismo que gastaste en impuestos aduanales.")
+                    
+                    st.divider()
+                    st.write("**Desglose de Trackings**")
                     m1, m2 = st.columns(2)
                     m1.metric("Paquetes Conciliados", prev['encontrados'])
                     m2.metric("Paquetes Faltantes", prev['faltantes'])
                     
                     if prev['faltantes'] > 0:
-                        st.warning(f"⚠️ **Alerta:** Hay {prev['faltantes']} paquetes liquidados por TEMU que NO están en tus archivos Excel de aduana. Se agregarán automáticamente al historial como 'FALTANTE' con un impuesto de $0.00 para que la cantidad de paquetes cuadre sin alterar tus gastos financieros.")
+                        st.warning(f"⚠️ **Alerta:** Hay {prev['faltantes']} paquetes liquidados por TEMU que NO están en tus reportes de aduana. Al guardar, se agregarán como 'FALTANTE' con un impuesto de $0.00 para no alterar tus gastos.")
                         with st.expander("Ver Trackings Faltantes"):
                             st.write(prev['faltantes_list'])
                     else:
-                        st.success("✅ ¡Conciliación Perfecta! Todos los paquetes reportados por TEMU existen en tu base de datos.")
+                        st.success("✅ Todos los paquetes están en tu base de datos.")
                         
                     if st.button("💾 Confirmar y Registrar Liquidación", type="primary"):
                         try:
@@ -474,7 +500,7 @@ def show(user_info):
                                 for i in range(0, len(data_f), chunk_sz):
                                     cur.executemany(sql_f, data_f[i:i+chunk_sz])
                                     
-                            # 4. Sumar el dinero al balance global
+                            # 4. Sumar el dinero de TEMU al balance global
                             cur.execute("UPDATE temu_hn_resumen SET liquidado_temu = liquidado_temu + %s WHERE id = 1", (prev['monto_liq'],))
                             conn.commit()
                             
@@ -506,13 +532,9 @@ def show(user_info):
                     if st.button("⚠️ Eliminar Invoice y Revertir Liquidación", type="primary"):
                         if liq_data:
                             l_id = liq_data['id']
-                            # 1. Restar el monto del balance global
                             cur.execute("UPDATE temu_hn_resumen SET liquidado_temu = liquidado_temu - %s WHERE id = 1", (liq_data['monto_pagado'],))
-                            # 2. Eliminar los paquetes fantasma (FALTANTE) que se crearon en este invoice
                             cur.execute("DELETE FROM temu_hn_impuestos_paquetes WHERE master_num = 'FALTANTE' AND liquidacion_id = %s", (l_id,))
-                            # 3. Revertir los paquetes encontrados a "Pendientes"
                             cur.execute("UPDATE temu_hn_impuestos_paquetes SET liquidado = FALSE, liquidacion_id = NULL WHERE liquidacion_id = %s", (l_id,))
-                            # 4. Eliminar el Invoice
                             cur.execute("DELETE FROM temu_hn_liquidaciones WHERE id = %s", (l_id,))
                             
                             conn.commit()
