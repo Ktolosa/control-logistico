@@ -56,15 +56,6 @@ def init_fondos_db():
                     INDEX idx_master (master_num)
                 );
             """)
-            
-            # Scripts de actualización silenciosa por si ya existían las tablas
-            try: cur.execute("ALTER TABLE temu_hn_impuestos_paquetes RENAME COLUMN tracking TO tracking_a;")
-            except: pass
-            try: cur.execute("ALTER TABLE temu_hn_impuestos_paquetes ADD COLUMN tracking_b VARCHAR(100) AFTER tracking_a;")
-            except: pass
-            try: cur.execute("ALTER TABLE temu_hn_impuestos_paquetes ADD COLUMN liquidado BOOLEAN DEFAULT FALSE;")
-            except: pass
-            
             conn.commit()
         except Exception as e:
             pass
@@ -103,7 +94,7 @@ def show(user_info):
         
         tot_pend = tot_paq - tot_liq
 
-        t1, t2 = st.tabs(["📊 Resumen y Másters", "📦 Liquidación por Paquetes"])
+        t1, t2 = st.tabs(["📊 Resumen y Másters", "📦 Liquidación y Correcciones"])
         
         # ==========================================
         # PESTAÑA 1: RESUMEN Y MÁSTERS
@@ -111,7 +102,6 @@ def show(user_info):
         with t1:
             col_izq, col_espacio, col_der = st.columns([5, 1, 5])
             
-            # --- COLUMNA DERECHA: RESUMEN GLOBAL ---
             with col_der:
                 st.write("### Resumen Financiero")
                 
@@ -124,12 +114,11 @@ def show(user_info):
                 ])
                 st.dataframe(df_resumen, hide_index=True, use_container_width=True)
                 
-                # --- NUEVO: RESUMEN DE PAQUETES ---
                 st.write("### Estado de Paquetes")
                 cp1, cp2, cp3 = st.columns(3)
-                cp1.metric("Imp. Pagados", f"{tot_paq:,} pq", help="Total de paquetes registrados en la base de datos")
-                cp2.metric("Liquidados", f"{tot_liq:,} pq", help="Total de paquetes que ya te ha pagado TEMU")
-                cp3.metric("Pendientes", f"{tot_pend:,} pq", help="Paquetes por los que pagaste impuestos pero aún no te han liquidado")
+                cp1.metric("Imp. Pagados", f"{tot_paq:,} pq")
+                cp2.metric("Liquidados", f"{tot_liq:,} pq")
+                cp3.metric("Pendientes", f"{tot_pend:,} pq")
                 st.divider()
                 
                 with st.expander("📂 Cargar Impuestos de Másters (Excel)", expanded=True):
@@ -162,10 +151,7 @@ def show(user_info):
                                     tot_usd = df_imp['Total_USD'].sum()
                                     
                                     paquetes_data = list(zip(
-                                        [master_num] * len(df_imp),
-                                        trackings_a,
-                                        trackings_b,
-                                        df_imp['Total_USD'].tolist()
+                                        [master_num] * len(df_imp), trackings_a, trackings_b, df_imp['Total_USD'].tolist()
                                     ))
                                     
                                     resultados.append({
@@ -221,9 +207,8 @@ def show(user_info):
                     if historial_masters:
                         df_hist = pd.DataFrame(historial_masters)
                         df_view = df_hist.rename(columns={
-                            'master_num':'Máster', 'fecha_declaracion':'Fecha Decl.', 
-                            'cantidad_paquetes':'Paq.', 'dai_usd':'DAI ($)', 
-                            'sel_usd':'SEL ($)', 'iva_usd':'IVA ($)', 
+                            'master_num':'Máster', 'fecha_declaracion':'Fecha Decl.', 'cantidad_paquetes':'Paq.', 
+                            'dai_usd':'DAI ($)', 'sel_usd':'SEL ($)', 'iva_usd':'IVA ($)', 
                             'total_impuestos_usd':'Total ($)', 'registrado_por':'Responsable'
                         })
                         st.dataframe(df_view[['Máster', 'Fecha Decl.', 'Paq.', 'DAI ($)', 'SEL ($)', 'IVA ($)', 'Total ($)', 'Responsable']], hide_index=True)
@@ -258,7 +243,6 @@ def show(user_info):
                             st.success("Montos actualizados.")
                             st.rerun()
 
-            # --- COLUMNA IZQUIERDA: FLUJO OPERATIVO ---
             with col_izq:
                 st.write("### Flujo Operativo")
                 
@@ -298,8 +282,7 @@ def show(user_info):
                         
                         if st.form_submit_button("Registrar Movimiento", type="primary"):
                             if concepto:
-                                cur.execute("INSERT INTO temu_hn_movimientos (concepto, entrada, salida) VALUES (%s, %s, %s)", 
-                                            (concepto, entrada, salida))
+                                cur.execute("INSERT INTO temu_hn_movimientos (concepto, entrada, salida) VALUES (%s, %s, %s)", (concepto, entrada, salida))
                                 conn.commit()
                                 st.rerun()
                             else:
@@ -311,30 +294,32 @@ def show(user_info):
                     st.rerun()
 
         # ==========================================
-        # PESTAÑA 2: LIQUIDACIÓN POR PAQUETES
+        # PESTAÑA 2: LIQUIDACIÓN POR PAQUETES Y CORRECCIÓN
         # ==========================================
         with t2:
             st.write("### 🔍 Conciliación y Liquidación de Paquetes")
-            st.markdown("Pega la lista de Trackings que TEMU ha reportado como liquidados. Al guardarlos, se marcarán como **'Liquidados'** en el Resumen de Paquetes.")
             
             c_liq1, c_liq2 = st.columns([1, 1])
             
             with c_liq1:
+                # NUEVO: Selector de acción (Liquidar vs Deshacer)
+                operacion = st.radio("Acción a realizar:", ["✅ Liquidar Paquetes (Sumar al fondo)", "⏪ Revertir Liquidación (Restar del fondo)"])
+                
+                st.markdown("Pega la lista de Trackings a procesar. El sistema buscará en la Columna A o B.")
                 txt_trackings = st.text_area("Pegar Trackings (Uno por línea)", height=300)
                 
-                if st.button("🔍 Calcular Liquidación", type="primary"):
+                if st.button("🔍 Calcular", type="primary"):
                     if txt_trackings.strip():
                         lista_raw = [x.strip() for x in txt_trackings.split('\n') if x.strip()]
                         lista_unicos = list(set(lista_raw))
                         
-                        with st.spinner("Buscando paquetes en ambas columnas..."):
+                        with st.spinner("Buscando paquetes..."):
                             todos_los_datos = []
                             BATCH_SIZE = 1000 
                             for i in range(0, len(lista_unicos), BATCH_SIZE):
                                 lote = lista_unicos[i : i + BATCH_SIZE]
                                 format_strings = ','.join(['%s'] * len(lote))
                                 
-                                # AHORA TRAEMOS EL 'ID' PARA PODER MARCARLOS LUEGO
                                 query = f"""
                                     SELECT id, master_num, tracking_a, tracking_b, total_usd, liquidado 
                                     FROM temu_hn_impuestos_paquetes 
@@ -348,79 +333,104 @@ def show(user_info):
                             if not df_found.empty:
                                 df_found = df_found.drop_duplicates(subset=['tracking_a', 'tracking_b'])
                                 
-                                total_liquidado = df_found['total_usd'].sum()
-                                encontrados = len(df_found)
-                                no_encontrados = len(lista_unicos) - encontrados
+                                # NUEVO: Separar los válidos dependiendo de la operación elegida
+                                if "Liquidar" in operacion:
+                                    df_validos = df_found[df_found['liquidado'] == False] # Queremos cobrar los pendientes
+                                    df_omitidos = df_found[df_found['liquidado'] == True] # Ya los cobramos antes
+                                else:
+                                    df_validos = df_found[df_found['liquidado'] == True]  # Queremos revertir los que ya cobramos
+                                    df_omitidos = df_found[df_found['liquidado'] == False]# No se pueden revertir si están pendientes
                                 
-                                st.session_state['liq_total'] = float(total_liquidado)
-                                st.session_state['liq_df'] = df_found
-                                st.session_state['liq_enc'] = encontrados
-                                st.session_state['liq_falt'] = no_encontrados
+                                total_operacion = float(df_validos['total_usd'].sum()) if not df_validos.empty else 0.0
+                                
+                                st.session_state['liq_op'] = operacion
+                                st.session_state['liq_total'] = total_operacion
+                                st.session_state['liq_df_validos'] = df_validos
+                                st.session_state['liq_omitidos'] = len(df_omitidos)
+                                st.session_state['liq_faltantes'] = len(lista_unicos) - len(df_found)
                             else:
                                 st.warning("No se encontró ningún tracking de esta lista en la base de datos.")
-                                if 'liq_total' in st.session_state:
-                                    del st.session_state['liq_total']
+                                if 'liq_total' in st.session_state: del st.session_state['liq_total']
                     else:
                         st.warning("Debe ingresar al menos un tracking.")
             
             with c_liq2:
                 if 'liq_total' in st.session_state:
-                    st.success(f"### Total Calculado: ${st.session_state['liq_total']:,.2f} USD")
+                    if "Liquidar" in st.session_state['liq_op']:
+                        st.success(f"### Total a Liquidar: ${st.session_state['liq_total']:,.2f} USD")
+                    else:
+                        st.error(f"### Total a Revertir: ${st.session_state['liq_total']:,.2f} USD")
                     
-                    m1, m2 = st.columns(2)
-                    m1.metric("Paquetes Encontrados", st.session_state['liq_enc'])
-                    m2.metric("No Encontrados (Revisar)", st.session_state['liq_falt'])
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Paquetes Válidos", len(st.session_state['liq_df_validos']))
+                    m2.metric("Omitidos (Estado incorrecto)", st.session_state['liq_omitidos'])
+                    m3.metric("No Encontrados", st.session_state['liq_faltantes'])
                     
-                    df_display = st.session_state['liq_df'].rename(columns={
-                        'master_num':'Máster', 
-                        'tracking_a':'Guía A', 
-                        'tracking_b':'Platform B', 
-                        'total_usd':'Impuesto Pagado ($)'
-                    })
-                    st.dataframe(df_display[['Máster', 'Guía A', 'Platform B', 'Impuesto Pagado ($)']], height=200, use_container_width=True)
+                    if not st.session_state['liq_df_validos'].empty:
+                        df_display = st.session_state['liq_df_validos'].rename(columns={
+                            'master_num':'Máster', 'tracking_a':'Guía A', 'tracking_b':'Platform B', 'total_usd':'Impuesto ($)'
+                        })
+                        st.dataframe(df_display[['Máster', 'Guía A', 'Platform B', 'Impuesto ($)']], height=150, use_container_width=True)
+                    else:
+                        st.info("Todos los trackings pegados fueron omitidos o no encontrados.")
                     
-                    st.info(f"Liquidado actualmente: **${liquidado:,.2f}**")
-                    accion_liq = st.radio("¿Qué desea hacer con este cálculo?", ["Sumarlo al 'Liquidado por TEMU' actual", "Reemplazar completamente el 'Liquidado por TEMU'"])
+                    st.info(f"Fondo 'Liquidado por TEMU' actual: **${liquidado:,.2f}**")
                     
-                    if st.button("💾 Aplicar Liquidación y Marcar Paquetes", type="primary"):
-                        # Extraer los IDs de los paquetes que acabamos de encontrar
-                        ids_paquetes = st.session_state['liq_df']['id'].tolist()
+                    # LOGICA DE APLICACIÓN
+                    if not st.session_state['liq_df_validos'].empty:
+                        ids_paquetes = st.session_state['liq_df_validos']['id'].tolist()
+                        format_ids = ','.join(['%s'] * len(ids_paquetes))
                         
-                        if "Sumarlo" in accion_liq:
-                            nuevo_liquidado = liquidado + st.session_state['liq_total']
-                            # Marcar los paquetes específicos como liquidados
-                            if ids_paquetes:
-                                format_ids = ','.join(['%s'] * len(ids_paquetes))
-                                cur.execute(f"UPDATE temu_hn_impuestos_paquetes SET liquidado = TRUE WHERE id IN ({format_ids})", tuple(ids_paquetes))
-                        else:
-                            nuevo_liquidado = st.session_state['liq_total']
-                            # Si reemplaza el monto, reinicia todos los paquetes a FALSE primero
-                            cur.execute("UPDATE temu_hn_impuestos_paquetes SET liquidado = FALSE")
-                            # Y luego marca solo los actuales como TRUE
-                            if ids_paquetes:
-                                format_ids = ','.join(['%s'] * len(ids_paquetes))
-                                cur.execute(f"UPDATE temu_hn_impuestos_paquetes SET liquidado = TRUE WHERE id IN ({format_ids})", tuple(ids_paquetes))
-                        
-                        cur.execute("UPDATE temu_hn_resumen SET liquidado_temu = %s WHERE id = 1", (nuevo_liquidado,))
-                        conn.commit()
-                        
-                        del st.session_state['liq_total']
-                        del st.session_state['liq_df']
-                        
-                        st.success("¡Balance global y estado de paquetes actualizados exitosamente!")
-                        st.rerun()
+                        if "Liquidar" in st.session_state['liq_op']:
+                            accion_liq = st.radio("Método de aplicación:", ["Sumarlo al balance actual", "Reemplazar balance completamente"])
+                            if st.button("💾 Aplicar Liquidación y Marcar como Pagados", type="primary"):
+                                
+                                if "Sumarlo" in accion_liq:
+                                    nuevo_liq = liquidado + st.session_state['liq_total']
+                                    cur.execute(f"UPDATE temu_hn_impuestos_paquetes SET liquidado = TRUE WHERE id IN ({format_ids})", tuple(ids_paquetes))
+                                else:
+                                    nuevo_liq = st.session_state['liq_total']
+                                    cur.execute("UPDATE temu_hn_impuestos_paquetes SET liquidado = FALSE") # Limpia todo
+                                    cur.execute(f"UPDATE temu_hn_impuestos_paquetes SET liquidado = TRUE WHERE id IN ({format_ids})", tuple(ids_paquetes))
+                                
+                                cur.execute("UPDATE temu_hn_resumen SET liquidado_temu = %s WHERE id = 1", (nuevo_liq,))
+                                conn.commit()
+                                
+                                del st.session_state['liq_total']
+                                st.success("¡Balance actualizado y paquetes marcados como Liquidados!")
+                                st.rerun()
+                                
+                        else: # Es una Reversión
+                            if st.button("⚠️ Confirmar Reversión (Restar dinero y volver a Pendientes)", type="primary"):
+                                nuevo_liq = max(0, liquidado - st.session_state['liq_total']) # Evita que baje de cero
+                                
+                                cur.execute(f"UPDATE temu_hn_impuestos_paquetes SET liquidado = FALSE WHERE id IN ({format_ids})", tuple(ids_paquetes))
+                                cur.execute("UPDATE temu_hn_resumen SET liquidado_temu = %s WHERE id = 1", (nuevo_liq,))
+                                conn.commit()
+                                
+                                del st.session_state['liq_total']
+                                st.success("¡Liquidación revertida! El dinero fue restado y los paquetes vuelven a estar pendientes.")
+                                st.rerun()
                 else:
                     st.info("Ingrese los trackings y presione 'Calcular' para ver los resultados aquí.")
             
             st.divider()
+            # NUEVO: Botón de Limpieza Global en caso de emergencia
+            with st.expander("🚨 Opciones Avanzadas (Limpieza General)", expanded=False):
+                st.warning("Si tus balances están descuadrados o quieres volver a hacer tu liquidación desde cero, utiliza este botón. **OJO: Esto no borra tus archivos Másters**, solo reinicia a cero el fondo 'Liquidado por TEMU' y vuelve todos los paquetes al estado 'Pendientes'.")
+                if st.button("Limpiar TODAS las Liquidaciones (Reset a Cero)"):
+                    cur.execute("UPDATE temu_hn_resumen SET liquidado_temu = 0 WHERE id = 1")
+                    cur.execute("UPDATE temu_hn_impuestos_paquetes SET liquidado = FALSE")
+                    conn.commit()
+                    st.success("Se ha reiniciado el sistema. Todos los paquetes están pendientes de liquidar.")
+                    st.rerun()
+                    
             st.write("### 📦 Visualizador General de Paquetes")
-            st.caption("Últimos 100 paquetes registrados en la base de datos de impuestos.")
             cur.execute("SELECT master_num as 'Máster', tracking_a as 'Guía (A)', tracking_b as 'Platform (B)', total_usd as 'Impuesto USD ($)', liquidado as '¿Liquidado?' FROM temu_hn_impuestos_paquetes ORDER BY id DESC LIMIT 100")
             
             datos_prev = cur.fetchall()
             if datos_prev:
                 df_preview = pd.DataFrame(datos_prev)
-                # Formatear el boolean a texto amigable
                 df_preview['¿Liquidado?'] = df_preview['¿Liquidado?'].apply(lambda x: "✅ Sí" if x else "❌ No")
                 st.dataframe(df_preview, hide_index=True, use_container_width=True)
             else:
