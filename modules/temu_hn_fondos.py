@@ -60,7 +60,6 @@ def init_fondos_db():
                 );
             """)
 
-            # NUEVO: Tabla de Liquidaciones Oficiales
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS temu_hn_liquidaciones (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -75,7 +74,6 @@ def init_fondos_db():
                 );
             """)
             
-            # Script de actualización silenciosa por si las tablas viejas existen
             try: cur.execute("ALTER TABLE temu_hn_impuestos_paquetes ADD COLUMN liquidacion_id INT DEFAULT NULL;")
             except: pass
             
@@ -181,7 +179,6 @@ def show(user_info):
                             texto_estado = st.empty()
                             total_archivos = len(archivos_excel)
                             
-                            # 1. FASE DE LECTURA DE EXCEL (Omitiendo errores completamente)
                             for idx, archivo in enumerate(archivos_excel):
                                 texto_estado.text(f"Leyendo Excel: {archivo.name} ({idx+1}/{total_archivos})")
                                 try:
@@ -189,7 +186,6 @@ def show(user_info):
                                     master_num = archivo.name.replace(".xlsx", "").replace(".xls", "")
                                     
                                     if df_imp.shape[1] >= 19:
-                                        # Detectar NaN
                                         montos_crudos = df_imp.iloc[:, [7, 8, 9, 10, 18]]
                                         if montos_crudos.isna().any().any():
                                             archivos_con_advertencia.append(f"**{archivo.name}**: Contenía celdas en blanco. Se forzaron a $0.00.")
@@ -219,7 +215,6 @@ def show(user_info):
                                         fecha_bruta = df_imp.iloc[0, 17] if len(df_imp) > 0 else "N/A"
                                         fecha_dec = str(fecha_bruta) if pd.notna(fecha_bruta) else "N/A"
                                         
-                                        # Solo si llega aquí sin crashear, lo agregamos a resultados a guardar
                                         resultados.append({
                                             'Máster': master_num,
                                             'Fecha Decl.': fecha_dec,
@@ -234,13 +229,12 @@ def show(user_info):
                                         archivos_con_error.append((archivo.name, "No tiene las 19 columnas de estructura requeridas."))
                                 except Exception as e:
                                     archivos_con_error.append((archivo.name, f"Datos corruptos o formato inválido."))
-                                    continue # Se asegura de omitirlo y seguir con el próximo
+                                    continue 
                                 
                                 barra_progreso.progress((idx + 1) / total_archivos)
                                 
                             texto_estado.text("¡Lectura finalizada! Guardando los archivos válidos en base de datos...")
                             
-                            # 2. FASE DE GUARDADO EN BD
                             nuevos_guardados = 0
                             suma_real = 0.0
                             
@@ -281,25 +275,43 @@ def show(user_info):
                             st.rerun()
 
                 with st.expander("📜 Historial de Másters Procesadas", expanded=False):
-                    cur.execute("SELECT id, master_num, fecha_declaracion, cantidad_paquetes, total_impuestos_usd, registrado_por FROM temu_hn_impuestos_master ORDER BY id DESC LIMIT 50")
+                    cur.execute("SELECT id, master_num, fecha_declaracion, cantidad_paquetes, total_impuestos_usd, registrado_por FROM temu_hn_impuestos_master ORDER BY id DESC")
                     historial_masters = cur.fetchall()
                     if historial_masters:
                         df_hist = pd.DataFrame(historial_masters)
-                        st.dataframe(df_hist.rename(columns={'master_num':'Máster', 'cantidad_paquetes':'Paq.', 'total_impuestos_usd':'Total ($)', 'registrado_por':'Por'}), hide_index=True)
+                        st.dataframe(df_hist.rename(columns={'master_num':'Máster', 'cantidad_paquetes':'Paq.', 'total_impuestos_usd':'Total ($)', 'registrado_por':'Por'}), hide_index=True, height=250)
                         
                         st.write("**Opciones de Gestión**")
                         master_sel = st.selectbox("Seleccione la Máster a eliminar:", df_hist['master_num'].tolist())
                         cur.execute("SELECT id, total_impuestos_usd FROM temu_hn_impuestos_master WHERE master_num = %s", (master_sel,))
                         m_data = cur.fetchone()
                         
-                        if st.button("🗑️ Eliminar Máster y Revertir", type="primary"):
+                        btn_c1, btn_c2 = st.columns(2)
+                        
+                        if btn_c1.button("🗑️ Eliminar Solo Esta Máster", type="primary"):
                             if m_data:
                                 cur.execute("UPDATE temu_hn_resumen SET impuestos_pagados = impuestos_pagados - %s WHERE id = 1", (m_data['total_impuestos_usd'],))
                                 cur.execute("DELETE FROM temu_hn_impuestos_master WHERE id = %s", (m_data['id'],))
                                 cur.execute("DELETE FROM temu_hn_impuestos_paquetes WHERE master_num = %s", (master_sel,))
                                 conn.commit()
-                                st.success("Máster eliminada.")
+                                st.success("Máster eliminada exitosamente.")
                                 st.rerun()
+                                
+                        if btn_c2.button("🚨 Eliminar TODAS las Másters", type="primary"):
+                            # Calcular el total para revertir del balance global
+                            cur.execute("SELECT SUM(total_impuestos_usd) as total_sum FROM temu_hn_impuestos_master")
+                            sum_res = cur.fetchone()
+                            total_a_restar = float(sum_res['total_sum']) if sum_res and sum_res['total_sum'] else 0.0
+                            
+                            # Restar del resumen
+                            cur.execute("UPDATE temu_hn_resumen SET impuestos_pagados = impuestos_pagados - %s WHERE id = 1", (total_a_restar,))
+                            # Borrar tablas (Protegiendo los FALTANTES de liquidación)
+                            cur.execute("DELETE FROM temu_hn_impuestos_master")
+                            cur.execute("DELETE FROM temu_hn_impuestos_paquetes WHERE master_num != 'FALTANTE'")
+                            conn.commit()
+                            
+                            st.success(f"Se eliminaron todas las Másters y se restaron ${total_a_restar:,.2f} del balance.")
+                            st.rerun()
                     else:
                         st.info("Sin registros.")
 
@@ -402,7 +414,6 @@ def show(user_info):
                                     encontrados = len(df_found)
                                     ids_encontrados = df_found['id'].tolist()
                                     
-                                    # Determinar cuáles trackings NO se encontraron
                                     found_trackings = set(df_found['tracking_a'].tolist() + df_found['tracking_b'].tolist())
                                     faltantes_list = [t for t in lista_unicos if t not in found_trackings]
                                 
