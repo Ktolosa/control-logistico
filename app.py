@@ -2,7 +2,7 @@ import streamlit as st
 import utils
 import time
 # IMPORTANTE: Asegúrate de que todos los archivos existan en la carpeta modules/
-from modules import calendario, analytics, gestor_temu, pod_digital, admin, configuracion, tracking_pro, nexus_mail, nexus_brain, tracking_secundario, finanzas, temu_hn_fondos
+from modules import calendario, analytics, gestor_temu, pod_digital, admin, configuracion, tracking_pro, nexus_mail, nexus_brain, tracking_secundario, finanzas, temu_hn_fondos, proformas
 import io
 from PIL import Image
 
@@ -107,6 +107,7 @@ MENU = {
     "config": {"title": "Ajustes", "icon": "⚙️", "mod": configuracion, "roles": ["all"]},
     "finanzas": {"title": "Facturación", "icon": "💰", "mod": finanzas, "roles": ["all"]},
     "temu_hn": {"title": "Fondos HN", "icon": "🇭🇳", "mod": temu_hn_fondos, "roles": ["all"]},
+    "proformas": {"title": "proformas", "icon": "🇭🇳", "mod": proformas, "roles": ["all"]},
 }
 
 def count_pending():
