@@ -4,15 +4,15 @@ from datetime import datetime
 from fpdf import FPDF
 import io
 import json
+import zipfile
 from utils import get_connection
 
-# --- 1. INICIALIZAR/ACTUALIZAR BASE DE DATOS COMPARTIDA ---
+# --- 1. INICIALIZAR BASE DE DATOS COMPARTIDA ---
 def init_proformas_db():
     conn = get_connection()
     if conn:
         try:
             cur = conn.cursor()
-            # Añadimos columnas nuevas a la tabla facturas para soportar el formato de Proformas
             try: cur.execute("ALTER TABLE facturas ADD COLUMN modulo VARCHAR(50) DEFAULT 'Finanzas';")
             except: pass
             try: cur.execute("ALTER TABLE facturas ADD COLUMN items_json TEXT DEFAULT NULL;")
@@ -22,32 +22,25 @@ def init_proformas_db():
         except Exception as e:
             if conn: conn.close()
 
-# --- 2. OBTENER CORRELATIVO COMPARTIDO GLOBAL ---
-def get_shared_invoice_number():
+# --- 2. OBTENER LISTA DE CORRELATIVOS USADOS (PARA HUECOS Y LOTES) ---
+def get_all_used_invoice_numbers():
     conn = get_connection()
-    if not conn: return "0046"
+    if not conn: return []
     try:
         cur = conn.cursor()
-        # Seleccionamos TODOS los invoice_num sin importar el tipo o módulo
         cur.execute("SELECT invoice_num FROM facturas")
-        numeros_usados = [int(r[0]) for r in cur.fetchall() if r[0].isdigit()]
+        nums = [int(r[0]) for r in cur.fetchall() if r[0].isdigit()]
         conn.close()
-        
-        next_num = 46 
-        while next_num in numeros_usados:
-            next_num += 1
-            
-        return f"{next_num:04d}" 
+        return nums
     except:
         if conn: conn.close()
-        return "0046"
+        return []
 
-# --- 3. GENERAR PDF (FORMATO PROFORMAS CON TABLA) ---
+# --- 3. GENERAR PDF (SOPORTA HASTA 10 FILAS) ---
 def generar_proforma_pdf(tipo_factura, inv_num, fecha, cliente, direccion, items_df, subtotal, tax, otros, total):
     pdf = FPDF()
     pdf.add_page()
     
-    # --- Encabezado Azul ---
     pdf.set_fill_color(22, 60, 115) 
     pdf.rect(0, 0, 210, 45, 'F')
     
@@ -60,7 +53,6 @@ def generar_proforma_pdf(tipo_factura, inv_num, fecha, cliente, direccion, items
     pdf.text(10, 30, "Calle Circunvalacion, Poligono D, Lote No. 7")
     pdf.text(10, 35, "Antiguo Cuscatlan, La Libertad El Salvador El Salvador")
     
-    # --- Metadatos (Invoice # y Fecha) ---
     pdf.set_text_color(22, 60, 115)
     pdf.set_font("Arial", 'B', 16)
     pdf.text(10, 60, f"INVOICE # {inv_num}")
@@ -71,7 +63,6 @@ def generar_proforma_pdf(tipo_factura, inv_num, fecha, cliente, direccion, items
     pdf.set_font("Arial", '', 12)
     pdf.text(150, 68, fecha_str)
     
-    # --- Bill To y For ---
     pdf.set_text_color(22, 60, 115)
     pdf.set_font("Arial", 'B', 16)
     pdf.text(10, 85, "Bill To")
@@ -84,17 +75,15 @@ def generar_proforma_pdf(tipo_factura, inv_num, fecha, cliente, direccion, items
     pdf.set_xy(9, 95)
     pdf.multi_cell(100, 5, str(direccion))
     
-    # Extraemos el texto "Per Package" que pide el formato
     pdf.set_xy(149, 90)
     pdf.cell(40, 5, "Per Package")
     
-    # --- Tabla de Múltiples Filas ---
+    # --- Tabla de Múltiples Filas (Hasta 10) ---
     pdf.set_y(120)
     pdf.set_fill_color(0, 51, 102)
     pdf.set_text_color(255, 255, 255)
     pdf.set_font("Arial", 'B', 11)
     
-    # Cabeceras de tabla
     pdf.cell(80, 8, "MAWB", 1, 0, 'C', True)
     pdf.cell(30, 8, "Parcel", 1, 0, 'C', True)
     pdf.cell(30, 8, "Price", 1, 0, 'C', True)
@@ -104,32 +93,30 @@ def generar_proforma_pdf(tipo_factura, inv_num, fecha, cliente, direccion, items
     pdf.set_text_color(0, 0, 0)
     pdf.set_font("Arial", '', 10)
     
-    # Dibujar filas dinámicamente
+    filas_impresas = 0
     for index, row in items_df.iterrows():
         mawb = str(row.get("MAWB", ""))
         parcel = str(row.get("Parcel", "0"))
         price = float(row.get("Price", 0.0))
         amount = float(row.get("Amount", 0.0))
         
-        if mawb.strip(): # Solo imprimir si la fila tiene datos
+        if mawb.strip(): 
             pdf.cell(80, 8, mawb, 1, 0, 'C', True)
             pdf.cell(30, 8, parcel, 1, 0, 'C', True)
             pdf.cell(30, 8, f"${price:.2f}", 1, 0, 'C', True)
             pdf.cell(50, 8, f"${amount:,.2f}", 1, 1, 'C', True)
+            filas_impresas += 1
     
-    # Relleno estético para alcanzar altura mínima de tabla si hay pocas filas
-    filas_impresas = len([x for x in items_df['MAWB'] if str(x).strip()])
-    for _ in range(max(0, 5 - filas_impresas)):
+    # Relleno estético para alcanzar 10 filas máximo
+    for _ in range(max(0, 10 - filas_impresas)):
         pdf.cell(80, 8, "", 1, 0, 'L', False)
         pdf.cell(30, 8, "", 1, 0, 'L', False)
         pdf.cell(30, 8, "", 1, 0, 'L', False)
         pdf.cell(50, 8, "", 1, 1, 'C', False)
         
-    # --- Totales ---
     pdf.ln(5)
     y_totales = pdf.get_y()
     
-    # Notas al pie (Lado izquierdo)
     pdf.set_y(y_totales)
     pdf.set_font("Arial", '', 9)
     pdf.cell(100, 5, "Make all checks payable to Company Name", ln=True)
@@ -137,7 +124,6 @@ def generar_proforma_pdf(tipo_factura, inv_num, fecha, cliente, direccion, items
     pdf.set_font("Arial", 'I', 9)
     pdf.cell(100, 5, "Thank you for your business!", ln=True)
     
-    # Cuadros de Totales (Lado derecho)
     pdf.set_y(y_totales)
     pdf.set_x(100)
     pdf.set_font("Arial", '', 11)
@@ -160,7 +146,7 @@ def generar_proforma_pdf(tipo_factura, inv_num, fecha, cliente, direccion, items
     
     return pdf.output(dest='S').encode('latin-1')
 
-# --- 4. CONFIGURACIÓN DE PROFORMAS ---
+# --- 4. CONFIGURACIÓN ---
 CONFIG_PROFORMAS = {
     "CC service": {
         "cliente": "RADIANCE SEA HONG KONG LIMITED",
@@ -182,94 +168,113 @@ CONFIG_PROFORMAS = {
 def show(user_info):
     init_proformas_db()
     st.title("📑 Proformas de Servicios")
-    st.caption("Módulo de facturación por paquete (Compartiendo correlativo con Finanzas)")
+    st.caption("Generación masiva con autocalculadora y separación en lotes de 10 filas.")
     
-    t1, t2 = st.tabs(["Generar Proforma", "Historial y Edición"])
+    t1, t2 = st.tabs(["Generación Masiva (Excel)", "Historial y Edición"])
     
+    # ==========================================
+    # PESTAÑA 1: INGRESO MASIVO (ÁREA DE PEGADO)
+    # ==========================================
     with t1:
-        st.subheader("Configuración")
         c_tipo, c_blank = st.columns([1, 1])
         tipo_sel = c_tipo.selectbox("Tipo de Proforma:", list(CONFIG_PROFORMAS.keys()))
         cfg = CONFIG_PROFORMAS[tipo_sel]
         
-        c1, c2 = st.columns(2)
-        inv_auto = get_shared_invoice_number() # Función compartida
+        st.write("### 📥 Pegar datos desde Excel")
+        st.info("Copia las 3 columnas de tu Excel y pégalas abajo. El orden debe ser: **MAWB 1 | MAWB 2 | Paquetes**")
         
-        with c1:
-            st.info(f"**Próximo Correlativo Global:** {inv_auto}")
-            cliente = st.text_input("Cliente (Bill To)", value=cfg["cliente"], disabled=True, key="p_cli")
-            direccion = st.text_area("Dirección del Cliente", value=cfg["direccion"], disabled=True, key="p_dir")
-            
-        with c2:
-            st.write("**Detalle de MAWB y Paquetes**")
-            st.caption("El 'Amount' se calcula automáticamente (Parcel x Price)")
-            
-            # Tabla editable para ingresar los MAWBs
-            default_data = pd.DataFrame([{"MAWB": "", "Parcel": 0, "Price": cfg["default_price"], "Amount": 0.0} for _ in range(5)])
-            
-            edited_df = st.data_editor(
-                default_data, 
-                num_rows="dynamic",
-                column_config={
-                    "MAWB": st.column_config.TextColumn("MAWB", width="large"),
-                    "Parcel": st.column_config.NumberColumn("Parcel", min_value=0, step=1),
-                    "Price": st.column_config.NumberColumn("Price ($)", min_value=0.0, format="$%.2f"),
-                    "Amount": st.column_config.NumberColumn("Amount ($)", disabled=True, format="$%.2f")
-                },
-                use_container_width=True,
-                key="table_new_proforma"
-            )
-            
-            # Autocalcular la columna Amount y el total de paquetes
-            edited_df['Amount'] = edited_df['Parcel'] * edited_df['Price']
-            cant_paq = int(edited_df['Parcel'].sum())
-            subtotal_calc = float(edited_df['Amount'].sum())
+        raw_text = st.text_area("Pegar aquí:", height=150, placeholder="172-05962036    810-51486680    1504\n369-10025153    729-95349380    1001")
+        
+        parsed_items = []
+        if raw_text:
+            lines = raw_text.strip().split('\n')
+            for line in lines:
+                cols = line.split('\t') # Al copiar de Excel, las celdas se separan por tabulaciones (\t)
+                if len(cols) >= 3:
+                    mawb = f"{cols[0].strip()}/{cols[1].strip()}"
+                    try: parcel = int(cols[2].strip().replace(',', ''))
+                    except: parcel = 0
+                    
+                    amount = parcel * cfg['default_price']
+                    parsed_items.append({"MAWB": mawb, "Parcel": parcel, "Price": cfg['default_price'], "Amount": amount})
+                elif len(cols) == 2:
+                    # Por si solo copian los dos MAWBs y olvidan los paquetes
+                    mawb = f"{cols[0].strip()}/{cols[1].strip()}"
+                    parsed_items.append({"MAWB": mawb, "Parcel": 0, "Price": cfg['default_price'], "Amount": 0.0})
 
-        st.divider()
-        st.subheader("Desglose Financiero")
-        c3, c4, c5 = st.columns(3)
-        st.markdown(f"**Total Paquetes:** {cant_paq}")
-        
-        subtotal = c3.number_input("Subtotal ($) - Autocalculado", value=subtotal_calc, disabled=True, key="p_sub")
-        tax = c4.number_input("Tax Rate ($)", value=cfg["tax_rate"], disabled=True, key="p_tax")
-        otros = c5.number_input("Other Costs ($)", value=cfg["other_costs"], disabled=True, key="p_other")
-        
-        total_calc = subtotal + tax + otros
-        st.markdown(f"### Total Proforma: <span style='color:green;'>${total_calc:,.2f}</span>", unsafe_allow_html=True)
-        
-        if st.button("💾 Generar y Guardar Proforma", type="primary"):
-            if total_calc <= 0:
-                st.error("El total debe ser mayor a $0")
-            elif cant_paq <= 0:
-                st.error("Debes ingresar al menos un Parcel válido")
-            else:
-                with st.spinner("Generando PDF y guardando..."):
+        if parsed_items:
+            df_preview = pd.DataFrame(parsed_items)
+            
+            st.write("### 🔍 Vista Previa y Cálculo Automático")
+            st.dataframe(df_preview, use_container_width=True)
+            
+            # Dividir en lotes de 10
+            lotes = [parsed_items[i:i + 10] for i in range(0, len(parsed_items), 10)]
+            
+            st.success(f"✅ Se detectaron {len(parsed_items)} filas. Se generarán **{len(lotes)} Proformas** (máx 10 por PDF).")
+            
+            if st.button("🚀 Procesar Lote y Generar ZIP", type="primary"):
+                with st.spinner("Calculando, dividiendo y empaquetando proformas..."):
                     ahora = datetime.now()
-                    items_json = edited_df.to_json(orient='records')
+                    used_nums = get_all_used_invoice_numbers()
+                    next_num = 46 # Lógica de inicio requerida
                     
-                    pdf_bytes = generar_proforma_pdf(tipo_sel, inv_auto, ahora, cliente, direccion, edited_df, subtotal, tax, otros, total_calc)
+                    zip_buffer = io.BytesIO()
                     
-                    conn = get_connection()
-                    if conn:
-                        try:
-                            cur = conn.cursor()
+                    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+                        conn = get_connection()
+                        cur = conn.cursor()
+                        
+                        for lote in lotes:
+                            # 1. Encontrar el siguiente número disponible
+                            while next_num in used_nums:
+                                next_num += 1
+                            inv_num_str = f"{next_num:04d}"
+                            used_nums.append(next_num) # Marcarlo como usado para el siguiente ciclo
+                            
+                            # 2. Cálculos del lote
+                            df_lote = pd.DataFrame(lote)
+                            subtotal = df_lote['Amount'].sum()
+                            tax = cfg['tax_rate']
+                            otros = cfg['other_costs']
+                            total_lote = subtotal + tax + otros
+                            cant_paq_lote = int(df_lote['Parcel'].sum())
+                            items_json = df_lote.to_json(orient='records')
+                            
+                            # 3. Generar PDF
+                            pdf_bytes = generar_proforma_pdf(
+                                tipo_sel, inv_num_str, ahora, cfg['cliente'], cfg['direccion'], 
+                                df_lote, subtotal, tax, otros, total_lote
+                            )
+                            
+                            # 4. Guardar en BD
                             sql = """INSERT INTO facturas (modulo, tipo_factura, invoice_num, fecha, cliente, direccion, concepto, cantidad_paquetes, subtotal, tax_rate, other_costs, total, pdf_file, created_by, items_json) 
                                      VALUES ('Proformas', %s, %s, %s, %s, %s, 'Customs Clearance per Package', %s, %s, %s, %s, %s, %s, %s, %s)"""
-                            cur.execute(sql, (tipo_sel, inv_auto, ahora, cliente, direccion, cant_paq, subtotal, tax, otros, total_calc, pdf_bytes, user_info['username'], items_json))
-                            conn.commit()
-                            st.success(f"Proforma #{inv_auto} ({tipo_sel}) generada exitosamente.")
-                            st.download_button("⬇️ Descargar PDF", data=pdf_bytes, file_name=f"Proforma_{tipo_sel}_{inv_auto}.pdf", mime="application/pdf")
-                        except Exception as e:
-                            st.error(f"Error BD: {e}")
-                        finally:
-                            conn.close()
+                            cur.execute(sql, (tipo_sel, inv_num_str, ahora, cfg['cliente'], cfg['direccion'], cant_paq_lote, subtotal, tax, otros, total_lote, pdf_bytes, user_info['username'], items_json))
+                            
+                            # 5. Añadir al ZIP
+                            zip_file.writestr(f"Proforma_{tipo_sel}_{inv_num_str}.pdf", pdf_bytes)
+                            
+                        conn.commit()
+                        conn.close()
+                    
+                    st.success("¡Lote procesado y guardado en la Base de Datos con éxito!")
+                    st.download_button(
+                        label="⬇️ Descargar ZIP con todas las Proformas", 
+                        data=zip_buffer.getvalue(), 
+                        file_name=f"Lote_Proformas_{ahora.strftime('%Y%m%d_%H%M')}.zip", 
+                        mime="application/zip",
+                        type="primary"
+                    )
 
+    # ==========================================
+    # PESTAÑA 2: HISTORIAL, EDICIÓN Y ELIMINACIÓN
+    # ==========================================
     with t2:
         st.subheader("Gestión de Proformas")
         conn = get_connection()
         if conn:
             try:
-                # Solo cargamos las que pertenecen a este módulo
                 query = """
                     SELECT id, tipo_factura as 'Tipo', invoice_num as 'Invoice #', fecha as 'Fecha', 
                     cliente as 'Cliente', total as 'Total ($)', created_by as 'Creado Por', 
@@ -299,14 +304,14 @@ def show(user_info):
                     fac_data = cur.fetchone()
                     
                     if fac_data:
-                        accion = st.radio("Acción:", ["⬇️ Descargar PDF", "✏️ Editar Valores", "🗑️ Eliminar Proforma"], horizontal=True)
+                        accion = st.radio("Acción:", ["⬇️ Descargar PDF", "✏️️ Editar Valores", "🗑️ Eliminar Proforma"], horizontal=True)
                         
                         if accion == "⬇️ Descargar PDF":
                             if fac_data['pdf_file']:
                                 st.download_button("Descargar PDF", data=fac_data['pdf_file'], file_name=f"Proforma_{fac_data['invoice_num']}.pdf", mime="application/pdf", type="primary")
                         
                         elif accion == "🗑️ Eliminar Proforma":
-                            st.warning(f"Eliminar proforma {fac_data['invoice_num']}. El correlativo será liberado globalmente.")
+                            st.warning(f"Eliminar proforma {fac_data['invoice_num']}. El correlativo será liberado globalmente y se rellenará en la próxima generación.")
                             if st.button("🚨 Confirmar Eliminación", type="primary"):
                                 cur.execute("DELETE FROM facturas WHERE id = %s", (fac_id,))
                                 conn.commit()
@@ -314,9 +319,8 @@ def show(user_info):
                                 st.rerun()
                                 
                         elif accion == "✏️ Editar Valores":
-                            st.info("ℹ️ Edita la tabla de MAWBs. El recálculo es automático.")
+                            st.info("ℹ️ Edita los Paquetes o el Precio. Los totales se recalcularán automáticamente al guardar.")
                             
-                            # Recuperar los items guardados en JSON
                             if fac_data['items_json']:
                                 items_cargados = pd.DataFrame(json.loads(fac_data['items_json']))
                             else:
@@ -329,25 +333,28 @@ def show(user_info):
                                     "MAWB": st.column_config.TextColumn("MAWB", width="large"),
                                     "Parcel": st.column_config.NumberColumn("Parcel", min_value=0, step=1),
                                     "Price": st.column_config.NumberColumn("Price ($)", min_value=0.0, format="$%.2f"),
-                                    "Amount": st.column_config.NumberColumn("Amount ($)", disabled=True, format="$%.2f")
+                                    "Amount": st.column_config.NumberColumn("Amount ($) [Ignorar, se autocalcula]", disabled=True)
                                 },
                                 use_container_width=True,
                                 key="table_edit_proforma"
                             )
                             
+                            # Recálculo forzado en backend
                             edited_df_hist['Amount'] = edited_df_hist['Parcel'] * edited_df_hist['Price']
                             edit_cant = int(edited_df_hist['Parcel'].sum())
                             edit_sub = float(edited_df_hist['Amount'].sum())
                             
                             m1, m2, m3 = st.columns(3)
-                            st.write(f"**Subtotal Calculado:** ${edit_sub:,.2f}")
-                            edit_tax = m2.number_input("Tax Rate", value=float(fac_data['tax_rate']), step=0.01, key="e_tax")
-                            edit_otros = m3.number_input("Other Costs", value=float(fac_data['other_costs']), step=0.01, key="e_other")
+                            edit_tax = m1.number_input("Tax Rate", value=float(fac_data['tax_rate']), step=0.01, key="e_tax")
+                            edit_otros = m2.number_input("Other Costs", value=float(fac_data['other_costs']), step=0.01, key="e_other")
                             
                             nuevo_total = edit_sub + edit_tax + edit_otros
-                            st.write(f"**Nuevo Total:** ${nuevo_total:,.2f}")
                             
-                            if st.button("💾 Guardar Cambios y Regenerar", type="primary"):
+                            # Mostrar totales calculados en tiempo real antes de guardar
+                            m3.markdown(f"**Subtotal Recalculado:**<br>${edit_sub:,.2f}", unsafe_allow_html=True)
+                            st.write(f"### Nuevo Total Factura: ${nuevo_total:,.2f}")
+                            
+                            if st.button("💾 Guardar Cambios y Regenerar PDF", type="primary"):
                                 with st.spinner("Actualizando..."):
                                     nuevo_json = edited_df_hist.to_json(orient='records')
                                     nuevo_pdf = generar_proforma_pdf(
