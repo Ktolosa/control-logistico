@@ -149,7 +149,7 @@ CONFIG_PROFORMAS = {
         "cliente": "ADIMEX LOGISTICS INC.",
         "direccion": "123 Supply Chain Blvd, Miami, FL 33166, USA.",
         "tax_rate": 0.00,
-        "other_costs": 15.00,
+        "other_costs": 0.00,
         "default_price": 0.35, # Tarifa por KG
         "col1": "Masters",
         "col2": "KG"
