@@ -141,7 +141,7 @@ CONFIG_PROFORMAS = {
         "direccion": "United 417,4/f Lippo Ctr Tower Two, No. 89 Queensway Admiralty, Hong Kong.",
         "tax_rate": 0.00,
         "other_costs": 0.00,
-        "default_price": 0.70,
+        "default_price": 0.19,
         "col1": "MAWB",
         "col2": "Parcel"
     },
