@@ -146,8 +146,8 @@ CONFIG_PROFORMAS = {
         "col2": "Parcel"
     },
     "Adimex": {
-        "cliente": "ADIMEX LOGISTICS INC.",
-        "direccion": "123 Supply Chain Blvd, Miami, FL 33166, USA.",
+        "cliente": "RADIANCE SEA HONG KONG LIMITED",
+        "direccion": "United 417,4/f Lippo Ctr Tower Two, No. 89 Queensway Admiralty, Hong Kong.",
         "tax_rate": 0.00,
         "other_costs": 0.00,
         "default_price": 0.35, # Tarifa por KG
