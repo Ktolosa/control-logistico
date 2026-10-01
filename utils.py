@@ -292,7 +292,7 @@ def load_css(theme_code="light"):
 # --- TRACKING PRO 2 (SEGUNDA BASE): FUNCIONES BD ---
 
 def init_tracking_db_2():
-    """Crea la segunda tabla independiente en TiDB/MySQL"""
+    """Crea la segunda tabla con la estructura ampliada para Master Honduras"""
     conn = get_connection()
     if conn:
         try:
@@ -300,11 +300,17 @@ def init_tracking_db_2():
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS tracking_db_2 (
                     id INT AUTO_INCREMENT PRIMARY KEY,
-                    invoice VARCHAR(100) NOT NULL,
-                    tracking VARCHAR(100) NOT NULL,
+                    master_honduras VARCHAR(100),
+                    tracking VARCHAR(100),
+                    package_number VARCHAR(100),
+                    impuestos_l FLOAT,
+                    ducas VARCHAR(100),
+                    tasa_cambio FLOAT,
+                    impuestos_usd FLOAT,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     INDEX idx_tracking_2 (tracking),
-                    INDEX idx_invoice_2 (invoice)
+                    INDEX idx_package_2 (package_number),
+                    INDEX idx_master_2 (master_honduras)
                 );
             """)
             conn.commit()
@@ -312,34 +318,64 @@ def init_tracking_db_2():
         except Exception as e:
             if conn: conn.close()
 
-def guardar_base_tracking_2(invoice, lista_trackings):
+def guardar_base_tracking_2(df_datos):
+    """Guarda masivamente un DataFrame con la estructura de Master Honduras"""
     conn = get_connection() 
     if not conn: return False, "Error de Conexión"
     try:
         cur = conn.cursor()
-        vals = [(invoice, t) for t in lista_trackings]
-        cur.executemany("INSERT INTO tracking_db_2 (invoice, tracking) VALUES (%s, %s)", vals)
+        
+        vals = []
+        for index, row in df_datos.iterrows():
+            vals.append((
+                str(row.get('Máster', '')) if pd.notna(row.get('Máster')) else '',
+                str(row.get('Tracking number', '')) if pd.notna(row.get('Tracking number')) else '',
+                str(row.get('Package Number', '')) if pd.notna(row.get('Package Number')) else '',
+                float(row.get('Impuestos L', 0.0)) if pd.notna(row.get('Impuestos L')) else 0.0,
+                str(row.get('Ducas', '')) if pd.notna(row.get('Ducas')) else '',
+                float(row.get('Tasa de cambio', 0.0)) if pd.notna(row.get('Tasa de cambio')) else 0.0,
+                float(row.get('Impuestos $', 0.0)) if pd.notna(row.get('Impuestos $')) else 0.0
+            ))
+            
+        BATCH_SIZE = 5000
+        for i in range(0, len(vals), BATCH_SIZE):
+            lote = vals[i : i + BATCH_SIZE]
+            cur.executemany("""
+                INSERT INTO tracking_db_2 
+                (master_honduras, tracking, package_number, impuestos_l, ducas, tasa_cambio, impuestos_usd) 
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, lote)
+        
         conn.commit()
         conn.close()
-        return True, f"{len(vals)} guardados"
+        return True, f"{len(vals)} registros guardados"
     except Exception as e:
         if conn: conn.close()
         return False, str(e)
 
-def buscar_trackings_masivo_2(lista_trackings):
+def buscar_trackings_masivo_2(lista_buscar):
+    """Busca coincidencias masivas en 'tracking' O en 'package_number'"""
     conn = get_connection()
     if not conn: return pd.DataFrame()
     todos_los_datos = []
     BATCH_SIZE = 1000 
     try:
         cur = conn.cursor(dictionary=True)
-        for i in range(0, len(lista_trackings), BATCH_SIZE):
-            lote = lista_trackings[i : i + BATCH_SIZE]
+        for i in range(0, len(lista_buscar), BATCH_SIZE):
+            lote = lista_buscar[i : i + BATCH_SIZE]
             if not lote: continue
+            
             format_strings = ','.join(['%s'] * len(lote))
-            query = f"SELECT tracking, invoice FROM tracking_db_2 WHERE tracking IN ({format_strings})"
-            cur.execute(query, tuple(lote))
+            query = f"""
+                SELECT * FROM tracking_db_2 
+                WHERE tracking IN ({format_strings}) 
+                OR package_number IN ({format_strings})
+            """
+            
+            parametros = tuple(lote) + tuple(lote)
+            cur.execute(query, parametros)
             todos_los_datos.extend(cur.fetchall())
+            
         conn.close()
         return pd.DataFrame(todos_los_datos)
     except Exception as e: 
@@ -352,11 +388,12 @@ def obtener_resumen_bases_2():
     try:
         query = """
             SELECT 
-                invoice, 
+                master_honduras as invoice, 
                 COUNT(*) as cantidad, 
                 MAX(created_at) as fecha_creacion 
             FROM tracking_db_2 
-            GROUP BY invoice 
+            WHERE master_honduras != '' AND master_honduras IS NOT NULL AND master_honduras != 'nan'
+            GROUP BY master_honduras 
             ORDER BY fecha_creacion DESC
         """
         cur = conn.cursor(dictionary=True)
@@ -373,7 +410,7 @@ def eliminar_base_invoice_2(invoice):
     if not conn: return False
     try:
         cur = conn.cursor()
-        cur.execute("DELETE FROM tracking_db_2 WHERE invoice = %s", (invoice,))
+        cur.execute("DELETE FROM tracking_db_2 WHERE master_honduras = %s", (invoice,))
         conn.commit()
         conn.close()
         return True
