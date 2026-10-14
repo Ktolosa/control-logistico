@@ -2,7 +2,7 @@ import streamlit as st
 import utils
 import time
 # IMPORTANTE: Asegúrate de que todos los archivos existan en la carpeta modules/
-from modules import calendario, analytics, gestor_temu, pod_digital, admin, configuracion, tracking_pro, nexus_mail, nexus_brain, tracking_secundario, finanzas, temu_hn_fondos, proformas
+from modules import calendario, analytics, gestor_temu, pod_digital, admin, configuracion, tracking_pro, nexus_mail, nexus_brain, tracking_secundario, finanzas, temu_hn_fondos, proformas, masters_regionales
 import io
 from PIL import Image
 
@@ -101,6 +101,7 @@ MENU = {
     "mail": {"title": "Nexus Mail", "icon": "📨", "mod": nexus_mail, "roles": ["all"]},
     "tracking_pro": {"title": "Tracking Pro", "icon": "🔍", "mod": tracking_pro, "roles": ["all"]},
     "tracking_secundario": {"title": "Tracking Secundario", "icon": "🔎", "mod": tracking_secundario, "roles": ["all"]},
+    "masters_regionales": {"title": "Másters Regionales", "icon": "📦", "mod": masters_regionales, "roles": ["all"]},
     "temu": {"title": "Gestor TEMU", "icon": "📑", "mod": gestor_temu, "roles": ["all"]},
     "pod": {"title": "POD Digital", "icon": "📝", "mod": pod_digital, "roles": ["all"]},
     "admin": {"title": "Admin", "icon": "👥", "mod": admin, "roles": ["admin"]},
