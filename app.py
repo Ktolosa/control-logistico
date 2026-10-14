@@ -2,7 +2,7 @@ import streamlit as st
 import utils
 import time
 # IMPORTANTE: Asegúrate de que todos los archivos existan en la carpeta modules/
-from modules import calendario, analytics, gestor_temu, pod_digital, admin, configuracion, tracking_pro, nexus_mail, nexus_brain, tracking_secundario, finanzas, temu_hn_fondos, proformas, masters_regionales
+from modules import calendario, analytics, gestor_temu, pod_digital, admin, configuracion, tracking_pro, nexus_mail, nexus_brain, nexus_ai, tracking_secundario, finanzas, temu_hn_fondos, proformas, masters_regionales
 import io
 from PIL import Image
 
@@ -97,6 +97,7 @@ with st.sidebar:
 MENU = {
     "calendar": {"title": "Calendario", "icon": "📅", "mod": calendario, "roles": ["all"]},
     "analytics": {"title": "Analytics", "icon": "📈", "mod": analytics, "roles": ["all"]},
+    "ai": {"title": "Nexus AI", "icon": "✨", "mod": nexus_ai, "roles": ["all"]},
     "brain": {"title": "Nexus Brain", "icon": "🤖", "mod": nexus_brain, "roles": ["all"]},
     "mail": {"title": "Nexus Mail", "icon": "📨", "mod": nexus_mail, "roles": ["all"]},
     "tracking_pro": {"title": "Tracking Pro", "icon": "🔍", "mod": tracking_pro, "roles": ["all"]},
